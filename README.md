@@ -13,12 +13,13 @@ Field GPS map for Horsham Rural City Council grader operators.
 ## Run
 
 ```bash
+git clone https://github.com/nbrowny3108/horsham-maps.git
+cd horsham-maps
 npm install
-node scripts/inflate-map.mjs
 npm run dev
 ```
 
-`inflate-map.mjs` restores `src/components/map-app.tsx` and `map-chrome.tsx` from the compressed copies in git (GitHub's file API cannot take those files in one shot).
+`npm install` restores `src/components/map-app.tsx` and `map-chrome.tsx` from the compressed copies in git (`node scripts/inflate-map.mjs`).
 
 iPhone: add to Home Screen from the preview URL.
 
