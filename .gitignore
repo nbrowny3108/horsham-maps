@@ -1,0 +1,17 @@
+node_modules
+.node_modules.lock
+.tanstack
+.vercel
+.grok
+artifacts
+attachments
+screenshots
+.project_id
+horsham-full.json
+horsham-qa.json
+*.log
+.DS_Store
+dist
+.output
+.nitro
+.wrangler
