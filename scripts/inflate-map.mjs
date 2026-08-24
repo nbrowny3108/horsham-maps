@@ -9,12 +9,13 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const files = [
   ["src/components/map-chrome.tsx", "scripts/map-chrome.tsx.gz.b64"],
   ["src/components/map-app.tsx", "scripts/map-app.tsx.gz.b64"],
+  ["src/components/map-boot.ts", "scripts/map-boot.ts.gz.b64"],
 ];
 for (const [outRel, inRel] of files) {
   const dest = join(root, outRel);
   const src = join(root, inRel);
   if (!existsSync(src)) continue;
-  if (existsSync(dest) && dest.endsWith(".tsx") && readFileSync(dest).length > 1000) {
+  if (existsSync(dest) && readFileSync(dest).length > 1000) {
     console.log("keep existing", outRel);
     continue;
   }
