@@ -267,20 +267,42 @@ export class HeadingEngine {
 }
 
 export async function requestScreenWakeLock(): Promise<{ release: () => void }> {
+  return holdScreenWakeLock();
+}
+
+/** Re-request on visibilitychange — iOS drops the lock when the document hides. */
+export function holdScreenWakeLock(): { release: () => void } {
   const nav = navigator as Navigator & {
-    wakeLock?: { request: (type: "screen") => Promise<{ release: () => Promise<void> }> };
+    wakeLock?: { request: (type: "screen") => Promise<WakeLockSentinel> };
   };
-  if (!nav.wakeLock) return { release() {} };
-  try {
-    const lock = await nav.wakeLock.request("screen");
-    return {
-      release() {
-        void lock.release();
-      },
-    };
-  } catch {
-    return { release() {} };
-  }
+  let lock: WakeLockSentinel | null = null;
+  let stopped = false;
+
+  const acquire = async () => {
+    if (stopped || document.hidden || !nav.wakeLock) return;
+    try {
+      lock = await nav.wakeLock.request("screen");
+      lock.addEventListener("release", () => {
+        if (!stopped && !document.hidden) void acquire();
+      });
+    } catch {
+      lock = null;
+    }
+  };
+
+  const onVis = () => {
+    if (!document.hidden) void acquire();
+  };
+  document.addEventListener("visibilitychange", onVis);
+  void acquire();
+  return {
+    release() {
+      stopped = true;
+      document.removeEventListener("visibilitychange", onVis);
+      void lock?.release();
+      lock = null;
+    },
+  };
 }
 
 export function deadReckon(lat: number, lng: number, heading: number, speedMs: number, dt: number): [number, number] {

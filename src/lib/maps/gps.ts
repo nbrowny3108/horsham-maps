@@ -46,6 +46,10 @@ function readFix(pos: GeolocationPosition): GpsFix {
 }
 
 export function startGpsWatch(onFix: (fix: GpsFix) => void, onDenied: (message: string) => void): () => void {
+  if (isFramed()) {
+    return () => {};
+  }
+
   const watches: number[] = [];
   let stopped = false;
 

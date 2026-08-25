@@ -1,17 +1,50 @@
-const APP = "horsham-app-v15";
+const APP = "horsham-app-v16";
 const TILES = "horsham-tiles-v4";
 const DATA = "horsham-data-v1";
 const KEEP = new Set([APP, TILES, DATA]);
 
+self.addEventListener("message", (event) => {
+  if (event.data === "SKIP_WAITING") self.skipWaiting();
+});
+
+async function precacheShell() {
+  const cache = await caches.open(APP);
+  const urls = new Set(["/", "/manifest.webmanifest", "/favicon.svg", "/__grok/icon-180.png"]);
+  try {
+    const home = await fetch("/", { cache: "no-store" });
+    if (home.ok) {
+      await cache.put("/", home.clone());
+      const html = await home.text();
+      for (const m of html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)) {
+        if (m[1]) urls.add(m[1]);
+      }
+    }
+  } catch {
+    /* first paint still works without a full precache */
+  }
+  await Promise.all(
+    [...urls].map(async (url) => {
+      try {
+        if (url === "/") return;
+        const res = await fetch(url);
+        if (res.ok) await cache.put(url, res.clone());
+      } catch {
+        /* skip */
+      }
+    }),
+  );
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
+      await precacheShell();
       const data = await caches.open(DATA);
       try {
         const res = await fetch("/data/cache-manifest.json");
         const list = res.ok ? await res.json() : [];
         await Promise.all(
-          (Array.isArray(list) ? list : []).map(async (url) => {
+          (Array.isArray(list) ? list : []).slice(0, 24).map(async (url) => {
             try {
               const file = await fetch(url);
               if (file.ok) await data.put(url, file.clone());
@@ -21,7 +54,7 @@ self.addEventListener("install", (event) => {
           }),
         );
       } catch {
-        /* first paint still works without a full precache */
+        /* ok */
       }
       await self.skipWaiting();
     })(),
@@ -43,6 +76,15 @@ function isTile(url) {
 
 function isData(url) {
   return url.pathname.startsWith("/data/") || url.pathname === "/api/grading";
+}
+
+function isShell(url) {
+  return (
+    url.pathname.startsWith("/assets/") ||
+    url.pathname === "/manifest.webmanifest" ||
+    url.pathname === "/favicon.svg" ||
+    url.pathname.endsWith(".svg")
+  );
 }
 
 function keyOf(url) {
@@ -89,6 +131,10 @@ self.addEventListener("fetch", (event) => {
   }
   if (isData(url)) {
     event.respondWith(cacheFirst(DATA, req));
+    return;
+  }
+  if (isShell(url)) {
+    event.respondWith(cacheFirst(APP, req));
     return;
   }
   if (req.mode === "navigate") {

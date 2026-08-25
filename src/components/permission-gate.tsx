@@ -26,6 +26,7 @@ export function PermissionGate({ onGranted }: { onGranted: () => void }) {
   useEffect(() => {
     void mapAssets?.leaflet;
     startBackgroundCache();
+    if (framed) return;
     void queryGeoPermission().then((state) => {
       if (state === "granted") {
         setGeoOn(true);
@@ -36,10 +37,10 @@ export function PermissionGate({ onGranted }: { onGranted: () => void }) {
         setStep("blocked");
       }
     });
-  }, []);
+  }, [framed]);
 
   async function askLocation() {
-    if (lock.current || busy) return;
+    if (framed || lock.current || busy) return;
     lock.current = true;
     setBusy(true);
     const ok = await requestGeoGrant();
@@ -86,6 +87,34 @@ export function PermissionGate({ onGranted }: { onGranted: () => void }) {
       : step === "blocked"
         ? { label: "Try again", run: retry }
         : { label: busy ? "Allow Location…" : "Enable Location", run: askLocation };
+
+  if (framed) {
+    return (
+      <div className="flex h-full flex-col bg-bg text-fg pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-5">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-subtle">Horsham Maps</p>
+          <h1 className="mt-2 font-display text-[1.75rem] font-semibold leading-tight tracking-tight">
+            Open the Home Screen icon
+          </h1>
+          <p className="mt-2 text-sm leading-relaxed text-muted">
+            GPS only works from the Horsham Maps icon on your Home Screen. The Grok preview cannot use location.
+          </p>
+        </div>
+        <div className="px-5">
+          <button
+            type="button"
+            onPointerUp={(e) => {
+              e.stopPropagation();
+              onGranted();
+            }}
+            className="mx-auto block h-14 w-full max-w-sm rounded-md bg-primary text-base font-semibold text-primary-fg"
+          >
+            View map
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col bg-bg text-fg pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))]">

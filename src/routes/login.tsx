@@ -2,9 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { MapPin } from "lucide-react";
 import { GROK_PROVIDERS, authEnabled, signIn } from "@/lib/auth/client";
 
-export const Route = createFileRoute("/login")({
-  component: Login,
-});
+export const Route = createFileRoute("/login")({ component: Login });
 
 function Login() {
   return (

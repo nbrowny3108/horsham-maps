@@ -30,7 +30,7 @@ function around(lat: number, lng: number, km: number) {
   return { west: lng - dLng, east: lng + dLng, south: lat - dLat, north: lat + dLat };
 }
 
-function vicUrls(z: number, bounds: typeof SHIRE_BOUNDS): string[] {
+function vicUrls(z: number, bounds: { west: number; south: number; east: number; north: number }): string[] {
   const urls: string[] = [];
   const { x0, x1, y0, y1 } = tileRange(z, bounds);
   for (let x = x0; x <= x1; x++) {
@@ -41,12 +41,54 @@ function vicUrls(z: number, bounds: typeof SHIRE_BOUNDS): string[] {
   return urls;
 }
 
-export function buildOfflineUrls(here?: [number, number] | null): string[] {
+type GradingGeom = {
+  type?: string;
+  coordinates?: unknown;
+};
+
+function walkCoords(geom: GradingGeom | undefined, out: [number, number][]): void {
+  if (!geom?.coordinates) return;
+  const walk = (node: unknown, depth: number) => {
+    if (!Array.isArray(node) || node.length === 0) return;
+    if (typeof node[0] === "number" && typeof node[1] === "number") {
+      out.push([node[0], node[1]]);
+      return;
+    }
+    if (depth > 4) return;
+    for (const child of node) walk(child, depth + 1);
+  };
+  walk(geom.coordinates, 0);
+}
+
+async function gradingVertices(): Promise<[number, number][]> {
+  const pts: [number, number][] = [];
+  for (const url of ["/api/grading", "/data/grading-programme.geojson"]) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const data = (await res.json()) as { features?: { geometry?: GradingGeom }[] };
+      for (const f of data.features ?? []) walkCoords(f.geometry, pts);
+      if (pts.length) return pts;
+    } catch {
+      /* try the next source */
+    }
+  }
+  return pts;
+}
+
+function urlsAlong(points: [number, number][], z: number, padKm: number): string[] {
+  const urls: string[] = [];
+  let last: [number, number] | null = null;
+  for (const [lng, lat] of points) {
+    if (last && Math.hypot((lat - last[1]) * 111.32, (lng - last[0]) * 89.2) < padKm * 0.7) continue;
+    last = [lng, lat];
+    urls.push(...vicUrls(z, around(lat, lng, padKm)));
+  }
+  return urls;
+}
+
+export async function buildOfflineUrls(_here?: [number, number] | null): Promise<string[]> {
   const town = around(HORSHAM_CENTER[0], HORSHAM_CENTER[1], 8);
-  const local = here ? around(here[0], here[1], 8) : town;
-  const drive = here ? around(here[0], here[1], 5) : around(HORSHAM_CENTER[0], HORSHAM_CENTER[1], 5);
-  const close = here ? around(here[0], here[1], 2.5) : around(HORSHAM_CENTER[0], HORSHAM_CENTER[1], 2.5);
-  const townDrive = around(HORSHAM_CENTER[0], HORSHAM_CENTER[1], 3);
   const urls = [
     "/data/hrcc-boundary.geojson",
     "/data/grading-programme.geojson",
@@ -60,32 +102,29 @@ export function buildOfflineUrls(here?: [number, number] | null): string[] {
     "/api/grading",
     "/",
   ];
-  for (let z = 10; z <= 13; z++) urls.push(...vicUrls(z, SHIRE_BOUNDS));
-  for (let z = 13; z <= 16; z++) urls.push(...vicUrls(z, local));
-  for (let z = 17; z <= 18; z++) {
-    urls.push(...vicUrls(z, drive));
-    urls.push(...vicUrls(z, townDrive));
-  }
-  urls.push(...vicUrls(19, close));
-  urls.push(...vicUrls(19, around(HORSHAM_CENTER[0], HORSHAM_CENTER[1], 2)));
+  for (let z = 10; z <= 14; z++) urls.push(...vicUrls(z, SHIRE_BOUNDS));
+  for (let z = 15; z <= 16; z++) urls.push(...vicUrls(z, town));
+  const jobs = await gradingVertices();
+  for (let z = 15; z <= 16; z++) urls.push(...urlsAlong(jobs, z, 0.55));
+  for (let z = 17; z <= 18; z++) urls.push(...urlsAlong(jobs, z, 0.4));
   return [...new Set(urls)];
 }
 
-export function estimateOfflineMb(here?: [number, number] | null): number {
-  return Math.round(buildOfflineUrls(here).length * 0.022);
+export async function estimateOfflineMb(here?: [number, number] | null): Promise<number> {
+  return Math.round((await buildOfflineUrls(here)).length * 0.022);
 }
 
 export async function saveOfflinePack(
   onProgress: (progress: OfflineProgress) => void,
   here?: [number, number] | null,
 ): Promise<number> {
-  const urls = buildOfflineUrls(here);
+  const urls = await buildOfflineUrls(here);
   const cache = await caches.open(TILE_CACHE);
   let done = 0;
   const total = urls.length;
   onProgress({ done: 0, total, label: "Starting download" });
   const queue = [...urls];
-  const workers = Array.from({ length: 8 }, async () => {
+  const workers = Array.from({ length: 6 }, async () => {
     while (queue.length) {
       const url = queue.shift();
       if (!url) break;
@@ -105,7 +144,7 @@ export async function saveOfflinePack(
         onProgress({
           done,
           total,
-          label: done === total ? "Saved on this phone" : `Downloading shire map ${Math.round((done / total) * 100)}%`,
+          label: done === total ? "Saved on this phone" : `Depot pack ${Math.round((done / total) * 100)}%`,
         });
       }
     }

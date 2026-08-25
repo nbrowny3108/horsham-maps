@@ -103,13 +103,29 @@ export function sameRoadName(a: string, b: string) {
   return roadKey(a) === roadKey(b);
 }
 
+export function gradeProgramOf(feat?: import("geojson").Feature | { properties?: Record<string, unknown> } | null): string {
+  return String((feat?.properties as { program?: string } | null)?.program ?? "");
+}
+
+export function isNextProgramme(program: string): boolean {
+  return program.includes("27-28");
+}
+
+export function gradeColor(program: string, base: BaseLayer): string {
+  if (base === "hybrid") return isNextProgramme(program) ? MAP_COLORS.gradeHybridNext : MAP_COLORS.gradeHybrid;
+  return isNextProgramme(program) ? MAP_COLORS.gradeNext : MAP_COLORS.grade;
+}
+
 export function gradeStyle(base: BaseLayer) {
   return (feat?: import("geojson").Feature) => {
-    const prog = String((feat?.properties as { program?: string } | null)?.program ?? "");
-    if (base === "hybrid") {
-      return { color: MAP_COLORS.gradeHybrid, weight: 4.2, opacity: 1, lineCap: "round" as const, lineJoin: "round" as const };
-    }
-    return { color: prog.includes("27-28") ? "#9a3412" : MAP_COLORS.grade, weight: 5, opacity: 0.95, lineCap: "round" as const, lineJoin: "round" as const };
+    const prog = gradeProgramOf(feat);
+    return {
+      color: gradeColor(prog, base),
+      weight: base === "hybrid" ? 4.2 : 5,
+      opacity: 1,
+      lineCap: "round" as const,
+      lineJoin: "round" as const,
+    };
   };
 }
 
@@ -128,7 +144,7 @@ export function roadLineStyle(base: BaseLayer) {
       const name = String(props.name ?? "");
       const prog = name ? hybridGrade.names.get(roadKey(name)) : undefined;
       if (hybridGrade.show && prog) {
-        return { color: MAP_COLORS.gradeHybrid, weight: 3.6, opacity: 1, lineCap: "round" as const, lineJoin: "round" as const };
+        return { color: gradeColor(prog, "hybrid"), weight: 3.6, opacity: 1, lineCap: "round" as const, lineJoin: "round" as const };
       }
       if (surf === 2) return { color: MAP_COLORS.roadEarth, weight: 1.4, opacity: 1, lineCap: "round" as const, lineJoin: "round" as const };
       if (surf === 1) return { color: MAP_COLORS.grade, weight: 1.7, opacity: 1, lineCap: "round" as const, lineJoin: "round" as const };

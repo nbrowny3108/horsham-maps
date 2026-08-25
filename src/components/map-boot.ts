@@ -400,7 +400,7 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
         } as import("leaflet").GeoJSONOptions).addTo(map);
         ctx.roadChunks = L.layerGroup().addTo(map);
         const snaps: { name: string; lat: number; lng: number; brg: number }[] = [];
-        appendRoadSnaps(roads.features ?? [], snaps);
+        appendRoadSnaps(roads.features ?? [], snaps, drive.roads);
         drive.snaps = snaps;
         const loaded = new Set<string>();
         const syncChunks = async () => {
@@ -422,7 +422,7 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
               style: roadLineStyle("hybrid"),
               interactive: false,
             } as import("leaflet").GeoJSONOptions).addTo(ctx.roadChunks!);
-            appendRoadSnaps(extra.features, drive.snaps);
+            appendRoadSnaps(extra.features, drive.snaps, drive.roads);
             if (drive.snaps.length > 12_000) drive.snaps = drive.snaps.slice(-8_000);
           }
         };
@@ -452,17 +452,24 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
         renderer: L.canvas({ padding: 0.35, tolerance: 2 }),
         style: gradeStyle("hybrid"),
         onEachFeature: (feat, layer) => {
-          const props = (feat.properties ?? {}) as Record<string, string>;
+          const props = (feat.properties ?? {}) as Record<string, string | number>;
           layer.on("click", (ev) => {
             L.DomEvent.stopPropagation(ev);
             const ll = "latlng" in ev ? (ev as { latlng: { lat: number; lng: number } }).latlng : map.getCenter();
+            const title = String(props.Road_name || props.name || "").trim();
+            const from = String(props.From || "").trim();
+            const to = String(props.To || "").trim();
+            const zone = String(props.Grading_re || "").trim();
+            const metres = Number(props.Length_m || 0);
             void dropPlace({
               lat: ll.lat,
               lng: ll.lng,
-              title: props.name && props.name !== "Unnamed" ? props.name : "Unnamed road",
+              title: title || "Unnamed road",
               subtitle: [
-                props.program,
-                props.locality && props.to ? `${props.locality} → ${props.to}` : props.locality,
+                String(props.program || ""),
+                from && to ? `${from} → ${to}` : from || to,
+                zone,
+                metres > 0 ? `${metres.toLocaleString("en-AU")} m` : "",
                 "HRCC public Pozi",
               ]
                 .filter(Boolean)
@@ -474,7 +481,7 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
       } as import("leaflet").GeoJSONOptions).addTo(map);
       const names = new Map<string, string>();
       for (const f of features) {
-        const nm = roadKey(String(f.properties?.name ?? ""));
+        const nm = roadKey(String(f.properties?.Road_name ?? f.properties?.name ?? ""));
         const prog = String(f.properties?.program ?? "");
         if (nm && prog) names.set(nm, prog);
       }
@@ -484,7 +491,11 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
       setGradingKm(features.reduce((sum, f) => sum + lineLengthKm(f.geometry), 0));
       const programs = [...new Set(features.map((f) => String((f.properties as { program?: string } | undefined)?.program ?? "")).filter(Boolean))];
       setGradingNote(
-        [data.source === "pozi" ? "Live from Pozi" : "Saved Pozi extract", programs.join(" · ")].filter(Boolean).join(" · "),
+        [
+          data.source === "pozi" ? "Live from Pozi" : "Saved Pozi extract",
+          "26–27 gold · 27–28 blue",
+          programs.join(" · "),
+        ].filter(Boolean).join(" · "),
       );
     };
 

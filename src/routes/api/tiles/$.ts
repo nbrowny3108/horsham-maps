@@ -53,42 +53,38 @@ function useful(tile: Grab, min = 6000): boolean {
 
 let vicStreak = 0;
 
-/** Esri/Maxar if it has real coverage for this tile; Vicmap if Esri is a stub. */
+/** One imagery source per tile. Driving zoom (z>16) is Vicmap only. */
 async function pickBest(z: string, x: string, y: string): Promise<Grab> {
   const zoom = Number(z);
-  if (zoom >= 18 && vicStreak >= 3) {
-    const vicFast = await grab(UPSTREAM.vic(z, x, y));
-    if (useful(vicFast, 4000)) return vicFast;
-    const png = await grab(UPSTREAM.vicPng(z, x, y));
-    if (useful(png, 4000)) return png;
-    vicStreak = 0;
-  }
-  if (zoom <= 16) {
-    const esri = await grab(UPSTREAM.sat(z, x, y));
-    if (useful(esri)) {
-      vicStreak = 0;
-      return esri;
-    }
+  if (zoom > 16) {
     const vic = await grab(UPSTREAM.vic(z, x, y));
-    if (useful(vic, 4000)) return vic;
-    const png = await grab(UPSTREAM.vicPng(z, x, y));
-    return useful(png, 4000) ? png : esri;
-  }
-  const [esri, vic] = await Promise.all([grab(UPSTREAM.sat(z, x, y)), grab(UPSTREAM.vic(z, x, y))]);
-  const vicTile = useful(vic, 4000) ? vic : await grab(UPSTREAM.vicPng(z, x, y));
-  if (useful(esri) && useful(vicTile, 4000)) {
-    if (esri.body.byteLength < 14_000 && vicTile.body.byteLength > esri.body.byteLength * 2) {
+    if (useful(vic, 4000)) {
       vicStreak += 1;
-      return vicTile;
+      return vic;
     }
+    const png = await grab(UPSTREAM.vicPng(z, x, y));
+    if (useful(png, 4000)) {
+      vicStreak += 1;
+      return png;
+    }
+    return vic.ok ? vic : png;
+  }
+
+  const esri = await grab(UPSTREAM.sat(z, x, y));
+  if (useful(esri)) {
     vicStreak = 0;
     return esri;
   }
-  if (useful(vicTile, 4000)) {
+  const vic = await grab(UPSTREAM.vic(z, x, y));
+  if (useful(vic, 4000)) {
     vicStreak += 1;
-    return vicTile;
+    return vic;
   }
-  vicStreak = 0;
+  const png = await grab(UPSTREAM.vicPng(z, x, y));
+  if (useful(png, 4000)) {
+    vicStreak += 1;
+    return png;
+  }
   return esri;
 }
 

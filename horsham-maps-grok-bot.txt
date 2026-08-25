@@ -1,0 +1,51 @@
+Paste this into the Horsham Maps Grok Build chat:
+
+```
+You are working in the existing Horsham Maps workspace (Horsham Rural City grader HUD). Keep DriveEngine, Leaflet 1.9, leaflet-rotate, Vicmap aerial, Pozi grading overlay, cheap-ruler, rbush, and https://github.com/nbrowny3108/horsham-maps.
+
+Do not rewrite as native, Mapbox, Google Maps, or MapKit. Do not replace aerial with vector streets. Do not re-upload huge roads.geojson. Do not add Kalman/EKF. Do not scrape authenticated Pozi IWS. Do not add Leaflet.Locate, Leaflet.RoutingMachine, Leaflet.Snap (draw/edit), Leaflet-Geoman, leaflet.markercluster, leaflet.offline, or GoogleMutant.
+
+APP
+- iPhone Home Screen PWA. Name / short_name / apple-mobile-web-app-title = Horsham Maps. Never “Grok App” or a grok.me slug. Prefer the app-owned /manifest.webmanifest, not only /__grok/manifest.webmanifest.
+- GPS does not work in the Grok preview iframe. Never call geolocation while framed. Copy: open the Home Screen icon for GPS. After grants exist on the Home Screen app, skip the two-tap gate and go straight to the map.
+- iOS: no background GPS. Compass needs a tap. Wake lock must be re-requested on visibilitychange. Do not pretend GPS continues if the phone sleeps.
+
+KEEP (already in this workspace)
+- Heading-up: leaflet-rotate + DriveEngine RAF panTo. CSS-rotate the GPS cone. Recreate the DivIcon only on heading-mode change, not every GPS fix.
+- Tiles: one imagery source per request. z>16 Vicmap aerial only. No Promise.all Esri+Vicmap. pickBest / vicStreak in src/routes/api/tiles/$.ts.
+- Auto-zoom: honour loadAutoZoom(). Do not force setAutoZoom(true) on every map ready. zoomForSpeed: 90% ≤35 km/h, 80% mid, 60% ≥78 km/h.
+- toggleFollow off must clearWatch / stop the geolocation watch, not only set mode off.
+- Prefetch: heading + remaining route corridor + next auto-zoom band. Not the whole shire of JPEGs. Do not raise Leaflet keepBuffer a lot under rotate.
+- Puck snap: cheap-ruler + rbush RoadIndex in src/lib/maps/snap.ts. Snap displayed lat/lng onto nearest local road (≤40 m, heading-aligned). HUD current-road / next-intersection. Reject ~45–80 m GPS outliers.
+- Pozi overlay is live public JSON, not flattened /data/grading-programme.geojson as source of truth:
+  https://connect.pozi.com/userdata/horsham-publisher/Community/26-27_Grading_Programme.json
+  https://connect.pozi.com/userdata/horsham-publisher/Community/27-28_Grading_Programme.json
+  Map Road_name, From, To, Grading_re, Length_m / Length__m, Sequence, Asset_id. Clicks must not say “Unnamed road”.
+  Two programmes: 26–27 gold, 27–28 blue. No “this week” field exists.
+- Service worker: precache hashed app shell (js/css/html/svg). Tile cache in a separate name so a shell bump does not wipe satellite. iOS standalone: page-driven SKIP_WAITING + reload. Do not rely on Workbox navigation preload.
+- Offline pack: depot Wi-Fi shire z10–14, z15–16 town + jobs, z17–18 along the live Pozi programmes. Not a 2.5 km z19 bubble. z19 fills while driving.
+
+OPTIONAL, ONLY IF HEADING-UP IS STILL A SLIDESHOW AFTER THE ABOVE
+- MapLibre GL with Vicmap WMTS raster + vector roads/labels (PMTiles). Use pmtiles on MapLibre, not protomaps-leaflet and not Leaflet.VectorGrid as a new basemap.
+- If leaflet-rotate is still the old Raruto build and heading-up stutters, try tomickigrzegorz/leaflet-rotate and DriveEngine calling map.setHeading(deg, {ease, deadzone}) instead of raw setBearing every tick.
+
+DO NOT ADD
+- leaflet.hotline, ant-path, playback, fullscreen, markercluster, draw/edit plugins
+- Dual Esri+Vicmap fetches at z>16
+- Treating the flattened 2671-segment /data/grading-programme.geojson (name/locality/ufi) as live Pozi
+
+KEY FILES
+- src/components/map-app.tsx — map screen, GPS, follow, auto-zoom, cone CSS
+- src/components/map-boot.ts — Leaflet boot, Pozi overlay, road chunks
+- src/lib/maps/drive-engine.ts — RAF follow / heading-up
+- src/lib/maps/snap.ts — RoadIndex, puck snap, HUD names
+- src/routes/api/tiles/$.ts — single-source tiles
+- src/routes/api/grading.ts — live 26–27 and 27–28 Pozi
+- public/manifest.webmanifest + scripts/grok-pwa-shared.mjs — Horsham Maps name
+- public/sw.js — shell vs tile caches
+
+WHEN DONE
+- List files changed and packages added (and why).
+- Publish to grok.me so the iPhone Home Screen app updates.
+- Tell me to force-close and reopen Horsham Maps from the Home Screen, then allow Location and Motion if asked.
+```

@@ -74,6 +74,28 @@ export function saveMapDataOn(on: boolean): void {
   }
 }
 
+const PLACES_KEY = "horsham-maps-places";
+
+export function loadPlacesOn(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    const v = window.localStorage.getItem(PLACES_KEY);
+    if (v === "off") return false;
+    if (v === "on") return true;
+  } catch {
+    /* ignore */
+  }
+  return true;
+}
+
+export function savePlacesOn(on: boolean): void {
+  try {
+    window.localStorage.setItem(PLACES_KEY, on ? "on" : "off");
+  } catch {
+    /* ignore */
+  }
+}
+
 export type PhotoMode = "auto" | "sat" | "vic";
 
 export function loadPhotoMode(): PhotoMode {

@@ -1,5 +1,6 @@
 import { TILE_CACHE, tileCacheKey } from "./offline";
 import { quotaAllowsMore } from "./map-library";
+import { zoomForSpeed } from "./style";
 
 const inflight = new Set<string>();
 let queue: string[] = [];
@@ -132,9 +133,12 @@ export function prefetchDrive(opts: {
   route?: [number, number][] | null;
 }): void {
   if (paused || document.hidden) return;
-  const { lat, lng, kind } = opts;
+  const lat = opts.lat;
+  const lng = opts.lng;
+  const kind = opts.zoom >= 17 ? "best" : opts.kind;
   const speedMs = Math.max(0, opts.speedKmh) / 3.6;
   const z = Math.max(10, Math.min(20, Math.round(opts.zoom)));
+  const nextZ = Math.max(10, Math.min(20, Math.round(zoomForSpeed(opts.speedKmh, opts.zoom))));
   const urls: string[] = [];
   const seen = new Set<string>();
   const add = (zz: number, la: number, ln: number, ring: number) => {
@@ -156,10 +160,9 @@ export function prefetchDrive(opts: {
   const bands =
     z >= 17
       ? [
-          { t0: 0, t1: 22, zoom: z, ring: 2 },
-          { t0: 10, t1: 40, zoom: z, ring: 1 },
-          { t0: 16, t1: 55, zoom: Math.max(10, z - 1), ring: 1 },
-          { t0: 30, t1: 75, zoom: Math.max(10, z - 2), ring: 1 },
+          { t0: 0, t1: 18, zoom: z, ring: 1 },
+          { t0: 8, t1: 36, zoom: z, ring: 1 },
+          { t0: 14, t1: 50, zoom: Math.max(10, z - 1), ring: 1 },
         ]
       : [
           { t0: 0, t1: 12, zoom: z, ring: 2 },
@@ -167,9 +170,12 @@ export function prefetchDrive(opts: {
           { t0: 12, t1: 50, zoom: Math.max(10, z - 1), ring: 1 },
           { t0: 25, t1: 70, zoom: Math.max(10, z - 2), ring: 1 },
         ];
+  if (Math.abs(nextZ - z) >= 1) {
+    bands.push({ t0: 0, t1: 24, zoom: nextZ, ring: z >= 17 ? 1 : 2 });
+  }
 
   const cruise = Math.max(speedMs, 4);
-  const ahead = z >= 17 ? 75 : 55;
+  const ahead = 55;
   const points: { lat: number; lng: number; t: number }[] = [{ lat, lng, t: 0 }];
 
   if (opts.route && opts.route.length > 1) {
@@ -185,6 +191,7 @@ export function prefetchDrive(opts: {
       }
     }
     let acc = 0;
+    let lastSample = 0;
     let prev = opts.route[nearest] ?? [lat, lng];
     for (let i = nearest + 1; i < opts.route.length && acc < cruise * ahead; i++) {
       const p = opts.route[i];
@@ -192,23 +199,26 @@ export function prefetchDrive(opts: {
       const step = Math.hypot((p[0] - prev[0]) * 111.32, (p[1] - prev[1]) * 89.2);
       acc += step;
       prev = p;
-      points.push({ lat: p[0], lng: p[1], t: acc / cruise });
-    }
-  } else {
-    const cone = speedMs < 2.5 ? 32 : speedMs < 14 ? 16 : 10;
-    const bearings = speedMs < 1.2 ? [opts.heading] : [opts.heading - cone, opts.heading, opts.heading + cone];
-    const times = z >= 17 ? [3, 6, 10, 15, 22, 32, 45, 60, 75] : [4, 8, 14, 22, 32, 45, 55];
-    for (const brg of bearings) {
-      const rad = (brg * Math.PI) / 180;
-      for (const t of times) {
-        const metres = cruise * t;
-        const km = metres / 1000;
-        points.push({
-          lat: lat + (km * Math.cos(rad)) / 111.32,
-          lng: lng + (km * Math.sin(rad)) / (111.32 * Math.cos((lat * Math.PI) / 180)),
-          t,
-        });
+      if (acc - lastSample >= 0.18 || i === opts.route.length - 1) {
+        lastSample = acc;
+        points.push({ lat: p[0], lng: p[1], t: acc / cruise });
       }
+    }
+  }
+
+  const cone = speedMs < 2.5 ? 28 : speedMs < 14 ? 12 : 8;
+  const bearings = speedMs < 1.2 ? [opts.heading] : [opts.heading - cone, opts.heading, opts.heading + cone];
+  const times = z >= 17 ? [3, 8, 14, 22, 32, 45] : [4, 8, 14, 22, 32, 45, 55];
+  for (const brg of bearings) {
+    const rad = (brg * Math.PI) / 180;
+    for (const t of times) {
+      const metres = cruise * t;
+      const km = metres / 1000;
+      points.push({
+        lat: lat + (km * Math.cos(rad)) / 111.32,
+        lng: lng + (km * Math.sin(rad)) / (111.32 * Math.cos((lat * Math.PI) / 180)),
+        t,
+      });
     }
   }
 
@@ -218,7 +228,7 @@ export function prefetchDrive(opts: {
       add(band.zoom, p.lat, p.lng, band.ring);
     }
   }
-  add(z, lat, lng, 2);
+  add(z, lat, lng, z >= 17 ? 1 : 2);
   pushUnique(urls, true);
 }
 

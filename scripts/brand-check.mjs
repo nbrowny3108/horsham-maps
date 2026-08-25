@@ -16,8 +16,16 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+// Over this, link scrapers (X card previews included) time out or skip the
+// image, so the card silently fails to unfurl. The og skill's JPEG contract
+// (ffmpeg -q:v 4, ~150-300 KB) exists precisely to stay under it.
 export const MAX_CARD_BYTES = 600 * 1024;
 
+/**
+ * Drop line (//) and block comments so detectors cannot match scaffold examples
+ * that only exist inside comments (e.g. AGENTS.md first-scaffold notes copied
+ * into __root.tsx). Heuristic only — does not parse string literals.
+ */
 export function stripJsComments(src) {
   if (!src) return "";
   return src
@@ -25,6 +33,13 @@ export function stripJsComments(src) {
     .replace(/\/\/[^\n\r]*/g, "");
 }
 
+/**
+ * True when root head meta declares og:type x:game (TanStack head API form).
+ * Property/content order may vary; tolerate either ordering within a short
+ * window. Requires the exact value `x:game` — not bare `game`, and not a
+ * loose "game" string elsewhere in app code. Comment-only occurrences do not
+ * count (live meta required for X game-card unfurls).
+ */
 export function rootDeclaresOgTypeGame(rootTsx) {
   if (!rootTsx) return false;
   const code = stripJsComments(rootTsx);
@@ -35,6 +50,10 @@ export function rootDeclaresOgTypeGame(rootTsx) {
   return propertyThenContent.test(code) || contentThenProperty.test(code);
 }
 
+/**
+ * True when root head meta declares x:game:image (TanStack head API form).
+ * Comment-only scaffold notes do not count.
+ */
 export function rootDeclaresGameImage(rootTsx) {
   if (!rootTsx) return false;
   const code = stripJsComments(rootTsx);
@@ -51,6 +70,7 @@ export function computeBrandWarnings({ hasCanvas, workspaceRoot = "/workspace" }
   ].find(existsSync);
   const warnings = [];
 
+  // A shipped card is validated the same way for every app type.
   if (cardPath !== undefined) {
     if (rootTsx.includes("og.grok.me")) {
       warnings.push(
@@ -66,6 +86,7 @@ export function computeBrandWarnings({ hasCanvas, workspaceRoot = "/workspace" }
       );
     }
   } else if (hasCanvas) {
+    // No card. Canvas is a high-confidence game signal — hard warning.
     warnings.push(
       `BRAND WARNING: this looks like a game/canvas app but ${workspaceRoot}/public/og.jpg `
         + "is missing. Games and visually rich apps must ship a custom 1200x630 share card "
@@ -74,6 +95,10 @@ export function computeBrandWarnings({ hasCanvas, workspaceRoot = "/workspace" }
         + "brand-asset pass.",
     );
   } else if (rootTsx.includes("og.grok.me")) {
+    // No canvas but the placeholder is wired: custom cards are the DEFAULT
+    // (DOM games, whimsical apps, creative tools, brand-forward pages) — only
+    // plain utilities keep the placeholder. Softer prefix: for a genuine
+    // utility this note is correctly dismissed, not acted on.
     warnings.push(
       "BRAND NOTE: og:image is still the og.grok.me placeholder. Custom public/og.jpg "
         + "cards are the default for games of every kind (DOM board/word games included), "
@@ -83,6 +108,9 @@ export function computeBrandWarnings({ hasCanvas, workspaceRoot = "/workspace" }
     );
   }
 
+  // Games (canvas heuristic) must declare og:type="x:game" so X can present the
+  // share card as a game. DOM/board games without canvas are covered by agent
+  // docs; this gate only fires on the high-confidence canvas signal.
   if (hasCanvas && !rootDeclaresOgTypeGame(rootTsx)) {
     warnings.push(
       'BRAND WARNING: this looks like a game/canvas app but src/routes/__root.tsx is missing '
@@ -93,6 +121,9 @@ export function computeBrandWarnings({ hasCanvas, workspaceRoot = "/workspace" }
     );
   }
 
+  // Games with a custom link card must also ship the 50:11 X feed card and
+  // declare it as x:game:image. Skip while still on the og.grok.me placeholder
+  // — that pass has not started yet.
   const customCardWired = cardPath !== undefined && !rootTsx.includes("og.grok.me");
   if (hasCanvas && customCardWired) {
     const bannerPath = join(workspaceRoot, "public/x-banner.jpg");
@@ -103,6 +134,8 @@ export function computeBrandWarnings({ hasCanvas, workspaceRoot = "/workspace" }
           + `open ${skillPath} and finish the brand-asset pass.`,
       );
     } else if (statSync(bannerPath).size > MAX_CARD_BYTES) {
+      // Same scraper budget as og.jpg: an oversized banner validates locally
+      // but silently fails to unfurl on X.
       warnings.push(
         `BRAND WARNING: ${bannerPath} is over 600 KB — link scrapers (X card previews `
           + "included) time out or skip images this heavy, so the feed card silently fails "

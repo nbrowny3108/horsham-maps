@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { MapApp } from "@/components/map-app";
 import { PermissionGate, hasSavedSensorGrant } from "@/components/permission-gate";
+import { isFramed } from "@/lib/maps/gps";
 import { probeExistingGrants, type PermissionAccess } from "@/lib/maps/permissions";
 
 export const Route = createFileRoute("/")({ component: Home });
@@ -10,6 +11,12 @@ function Home() {
   const [access, setAccess] = useState<PermissionAccess | "boot">("boot");
 
   useEffect(() => {
+    // Preview iframe: never skip the gate because sensors were saved, and
+    // never start GPS. The gate tells you to open the Home Screen icon.
+    if (isFramed()) {
+      setAccess("gate");
+      return;
+    }
     if (hasSavedSensorGrant()) {
       setAccess("ready");
       return;

@@ -38,6 +38,10 @@ export function loadLabelsJson() {
   return loadJson("/data/road-labels.geojson");
 }
 
+export function loadPlacesJson() {
+  return loadJson("/data/places.geojson");
+}
+
 export function loadJunctionsJson() {
   return loadJson("/data/junctions.geojson");
 }

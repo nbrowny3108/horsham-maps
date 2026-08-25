@@ -15,6 +15,7 @@ function asLeaflet(mod: unknown): LeafletNS {
   return m;
 }
 
+/** Leaflet-rotate patches global `L`. Bind that to the same instance we construct maps with. */
 export async function loadLeaflet(): Promise<LeafletNS> {
   const mod = await import("leaflet");
   const L = asLeaflet(mod);

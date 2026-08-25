@@ -472,7 +472,7 @@ mapEl,
       >
         {layersOpen ? (
           <div className="max-h-72 overflow-y-auto border-b border-border p-3">
-            <p className="mb-3 text-xs text-muted">One satellite photo. Newer Esri/Maxar where it has coverage, Vicmap if that tile is empty.</p>
+            <p className="mb-3 text-xs text-muted">One satellite photo per tile.</p>
             <OverlayToggle
               label="Map data"
               detail="Road network linework and HRCC grading. Off shows aerial only."
@@ -554,7 +554,7 @@ mapEl,
             </div>
             <p className="mb-3 text-xs text-muted">
               {autoZoom
-                ? "0–75 km/h 80% · 75 km/h+ 60%. +/− switches to manual."
+                ? "90% at slow (≤35 km/h) · 80% mid · 60% at ≥78 km/h. +/− switches to manual."
                 : `Stays at ${zoomPct}% until you tap Auto.`}
             </p>
             <p className="mb-1 text-xs font-medium uppercase tracking-wide text-subtle">Permissions</p>
@@ -617,7 +617,7 @@ mapEl,
                 Map files
               </p>
               <p className="mb-2 text-xs text-muted">
-                Download satellite for 80–90% zoom around you and Horsham. Use Wi-Fi before a grading run so the map is already on the phone.
+                Download shire aerial (z10–14) plus this week’s grading jobs at driving zoom. Use depot Wi-Fi. z19 fills while you drive.
               </p>
               <p className="mb-2 flex items-center gap-1 text-xs text-muted">
                 <HardDrive className="size-3.5 shrink-0" />

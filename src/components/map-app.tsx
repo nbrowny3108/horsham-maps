@@ -4,7 +4,7 @@ import { MapChrome } from "./map-chrome";
 import { bootMap, type MapHandle } from "./map-boot";
 import { remainingKmAlong } from "@/lib/maps/geo";
 import { armCompassOnTap, requestMotionPermissions, toLeafletBearing } from "@/lib/maps/heading";
-import { queryGeoPermission, startGpsWatch, type GpsFix } from "@/lib/maps/gps";
+import { queryGeoPermission, startGpsWatch, isFramed, type GpsFix } from "@/lib/maps/gps";
 import { DriveEngine } from "@/lib/maps/drive-engine";
 import {
   gpsIconHtml,
@@ -26,6 +26,7 @@ import { planRoutes } from "@/lib/maps/routing";
 import {
   loadAlwaysGps,
   loadAlwaysMotion,
+  loadAutoZoom,
   loadCompassOk,
   loadGeoOk,
   loadGradingOn,
@@ -84,6 +85,7 @@ export function MapApp() {
   const remainAtRef = useRef(0);
   const drivePrefetchAt = useRef(0);
   const paintFixRef = useRef<(fix: GpsFix) => void>(() => {});
+  const gpsIconKeyRef = useRef("");
 
   const [ready, setReady] = useState(false);
   const [query, setQuery] = useState("");
@@ -129,7 +131,7 @@ export function MapApp() {
   const [offlineAt, setOfflineAt] = useState<number | null>(() => loadOfflineAt());
   const [needStart, setNeedStart] = useState(() => !loadSensorsOnboarded());
   const [zoomPct, setZoomPct] = useState(80);
-  const [autoZoom, setAutoZoom] = useState(true);
+  const [autoZoom, setAutoZoom] = useState(() => loadAutoZoom());
   const [locating, setLocating] = useState(false);
   const [hasFix, setHasFix] = useState(false);
   const [gpsLabel, setGpsLabel] = useState("");
@@ -225,19 +227,42 @@ export function MapApp() {
     }
   }
 
-  function refreshGpsIcon() {
+  function applyGpsCone() {
     const ctx = handle.current;
     if (!ctx?.gps) return;
+    const cone = ctx.gps.getElement()?.querySelector(".gps-mark-cone") as HTMLElement | null;
+    if (!cone) return;
+    const headingUp = headingModeRef.current === "heading";
+    cone.style.transform = `rotate(${headingUp && ctx.canRotate ? 0 : headingRef.current}deg)`;
+    cone.style.opacity = headingUp ? "1" : "0.4";
+  }
+
+  function rebuildGpsIcon() {
+    const ctx = handle.current;
+    if (!ctx?.gps) return;
+    const headingUp = headingModeRef.current === "heading";
+    const key = `${headingModeRef.current}|${ctx.canRotate ? 1 : 0}`;
+    if (key === gpsIconKeyRef.current) {
+      applyGpsCone();
+      return;
+    }
+    gpsIconKeyRef.current = key;
     ctx.gps.setIcon(
       ctx.L.divIcon({
         className: "",
         iconSize: [36, 36],
-        html: gpsIconHtml(headingRef.current, headingModeRef.current === "heading", ctx.canRotate),
+        html: gpsIconHtml(headingRef.current, headingUp, ctx.canRotate),
       }),
     );
+    window.requestAnimationFrame(applyGpsCone);
   }
 
   function beginGps() {
+    if (isFramed()) {
+      setLocating(false);
+      setError("GPS only works from the Home Screen app — open the Horsham Maps icon");
+      return;
+    }
     setLocating(true);
     setGpsMode("follow");
     if (gpsOnRef.current) return;
@@ -309,10 +334,12 @@ export function MapApp() {
           zIndexOffset: 2200,
           interactive: false,
         }).addTo(ctx.map);
+        gpsIconKeyRef.current = "";
+        rebuildGpsIcon();
       } else {
         ctx.accuracy?.setRadius(acc);
       }
-      refreshGpsIcon();
+      applyGpsCone();
     }
     setHasFix(true);
     setLocating(false);
@@ -528,16 +555,18 @@ export function MapApp() {
       },
     });
     if (headingModeRef.current !== "heading") applyMapBearing(0);
-    engine.setAutoZoom(true);
-    saveAutoZoom(true);
+    const auto = loadAutoZoom();
+    setAutoZoom(auto);
+    engine.setAutoZoom(auto);
     return () => engine.detach();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 
   useEffect(() => {
     if (headingMode !== "heading") applyMapBearing(0);
-    refreshGpsIcon();
-  }, [headingMode, ready]);
+    rebuildGpsIcon();
+    applyGpsCone();
+  }, [headingMode, heading, ready]);
 
   useEffect(() => {
     if (!ready) return;
@@ -562,14 +591,16 @@ export function MapApp() {
   useEffect(() => {
     if (!ready) return;
     startBackgroundCache(lastGps.current);
-    beginGps();
+    if (!isFramed()) {
+      beginGps();
+      void queryGeoPermission().then(setGeoPerm);
+    }
     const stopArm = armCompassOnTap(() => {
       drive.current.compass.start();
       saveSensorsOnboarded();
       setNeedStart(false);
       setMotionPerm("granted");
     });
-    void queryGeoPermission().then(setGeoPerm);
     return () => stopArm();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
@@ -639,12 +670,15 @@ export function MapApp() {
   }
 
   function toggleFollow() {
-    if (!navigator.geolocation) {
-      setError("GPS is not available on this device");
-      return;
-    }
     if (gpsMode === "follow") {
       setGpsMode("off");
+      gpsOnRef.current = false;
+      stopGpsRef.current();
+      stopGpsRef.current = () => {};
+      return;
+    }
+    if (!navigator.geolocation) {
+      setError("GPS is not available on this device");
       return;
     }
     beginGps();

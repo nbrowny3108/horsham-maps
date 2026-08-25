@@ -1,4 +1,5 @@
 import { cachedJson } from "./app-cache";
+import type { RoadIndex } from "./snap";
 
 export const ROAD_CHUNK_ZOOM = 13;
 const CELL = 0.1;
@@ -54,6 +55,7 @@ export function headingPadKeys(lat: number, lng: number, heading: number, km = 1
 export function appendRoadSnaps(
   features: RoadFeat[],
   snaps: { name: string; lat: number; lng: number; brg: number }[],
+  roads?: RoadIndex,
 ): void {
   const dest = (a: [number, number], b: [number, number]) => {
     const dLng = ((b[0] - a[0]) * Math.PI) / 180;
@@ -77,6 +79,7 @@ export function appendRoadSnaps(
             ? "Unnamed road"
             : "");
     if (!name) continue;
+    roads?.addLine(name, coords);
     let acc = 0;
     snaps.push({ name, lng: coords[0][0], lat: coords[0][1], brg: dest(coords[0], coords[1]) });
     for (let i = 1; i < coords.length; i++) {

@@ -1,7 +1,7 @@
 import type { Map as LeafletMap } from "leaflet";
-import { deadReckon, HeadingEngine, requestScreenWakeLock, toLeafletBearing, type HeadingSnapshot } from "./heading";
+import { deadReckon, HeadingEngine, holdScreenWakeLock, toLeafletBearing, type HeadingSnapshot } from "./heading";
 import { followCameraLatLng, zoomForSpeed } from "./style";
-import { snapCurrentRoad, snapNextRoad, type JunctionSnap, type RoadSnap } from "./snap";
+import { RoadIndex, snapCurrentRoad, snapNextRoad, snapPuckToRoad, type JunctionSnap, type RoadSnap } from "./snap";
 import type { GpsFix } from "./gps";
 
 export type DriveHud = {
@@ -41,6 +41,7 @@ export class DriveEngine {
   speed = 0;
   tripKm = 0;
   snaps: RoadSnap[] = [];
+  roads = new RoadIndex();
   junctions: JunctionSnap[] = [];
   panning = false;
   private gesturing = false;
@@ -67,9 +68,7 @@ export class DriveEngine {
     this.compass.start();
     this.lastFrame = performance.now();
     this.raf = window.requestAnimationFrame(this.loop);
-    void requestScreenWakeLock().then((lock) => {
-      this.wake = lock;
-    });
+    this.wake = holdScreenWakeLock();
   }
 
   detach(): void {
@@ -117,7 +116,13 @@ export class DriveEngine {
   }
 
   ingest(fix: GpsFix): void {
-    const here: [number, number] = [fix.lat, fix.lng];
+    const rawHere: [number, number] = [fix.lat, fix.lng];
+    if (this.last) {
+      const jump = Math.hypot((rawHere[0] - this.last[0]) * 111.32, (rawHere[1] - this.last[1]) * 89.2);
+      if (jump > 0.08 && (fix.accuracy >= 45 || fix.speed < 0.8)) return;
+    }
+    const snapped = snapPuckToRoad(this.snaps, rawHere, this.heading, this.roads);
+    const here: [number, number] = snapped ?? rawHere;
     this.last = here;
     if (!this.display) this.display = here;
     if (this.tripLast) {
@@ -134,7 +139,7 @@ export class DriveEngine {
     this.speed = fix.speed;
     this.compass.pushFix(here[0], here[1], fix.heading, fix.speed);
     const hd = this.heading;
-    const road = snapCurrentRoad(this.snaps, here, hd) || this.road;
+    const road = snapCurrentRoad(this.snaps, here, hd, this.roads) || this.road;
     if (road && road !== this.road) this.road = road;
     const next = snapNextRoad(this.junctions, this.road, here, hd);
     if (next !== this.next) this.next = next;

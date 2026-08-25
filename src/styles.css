@@ -2,6 +2,7 @@
 @import "leaflet/dist/leaflet.css";
 
 @theme {
+
   --font-sans: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
   --font-display: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
   --color-bg: #d0d3d6;
@@ -292,4 +293,98 @@ footer a {
     1.5px 1.5px 0 #1a1a1a,
     0 0 6px #000,
     0 1px 3px #000;
+}
+
+.poi-lab {
+  pointer-events: auto;
+  box-shadow: none !important;
+  background: transparent !important;
+  border: none !important;
+}
+
+.poi-lab span {
+  color: #fff;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  text-shadow:
+    -1.2px -1.2px 0 #1a1a1a,
+    1.2px -1.2px 0 #1a1a1a,
+    -1.2px 1.2px 0 #1a1a1a,
+    1.2px 1.2px 0 #1a1a1a,
+    0 0 5px #000;
+  font-family: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transform: translate(-50%, -50%);
+}
+
+.poi-lab span::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 0 0 1px #1a1a1a;
+  flex: none;
+}
+
+.poi-lab-lg span {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.poi-lab-park span {
+  color: #9fe07a;
+}
+.poi-lab-park span::before {
+  background: #5bb85b;
+}
+
+.poi-lab-water span {
+  color: #8ecae6;
+  font-style: italic;
+}
+.poi-lab-water span::before {
+  background: #4aa3c7;
+}
+
+.poi-lab-shop span::before {
+  background: #e53935;
+}
+
+.poi-lab-health span {
+  color: #ffc2bc;
+}
+.poi-lab-health span::before {
+  background: #e53935;
+}
+
+.poi-lab-edu span {
+  color: #f2d28b;
+}
+.poi-lab-edu span::before {
+  background: #d4a017;
+}
+
+.poi-lab-fuel span {
+  color: #ffe08a;
+}
+.poi-lab-fuel span::before {
+  background: #f4b400;
+}
+
+.poi-lab-sport span::before {
+  background: #1a73e8;
+}
+
+.poi-lab-civic span::before {
+  background: #5f6368;
+}
+
+.poi-lab-stay span::before {
+  background: #8d6e63;
 }

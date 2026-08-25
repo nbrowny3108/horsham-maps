@@ -115,8 +115,8 @@ test("is idempotent", () => {
 });
 
 test("uses the app name in the injected title tag", () => {
-  const out = injectGrokPwaHead("<html><head></head></html>", "Wild Race");
-  assert.match(out, /apple-mobile-web-app-title" content="Wild Race"/);
+  const out = injectGrokPwaHead("<html><head></head></html>", { appName: "Horsham Maps" });
+  assert.match(out, /apple-mobile-web-app-title" content="Horsham Maps"/);
 });
 
 test("streaming injector handles </head> split across chunks", () => {
@@ -168,20 +168,20 @@ test("strips install params from the app link", () => {
   assert.equal(stripInstallParams("/app?install=1&platform=ios&tab=2"), "/app?tab=2");
 });
 
-test("names the install page from host slug", () => {
-  assert.equal(appNameFromHost("localhost:8080"), "Grok App");
-  assert.equal(appNameFromHost("172.17.154.217:8080"), "Grok App");
-  assert.equal(appNameFromHost("wild-race.grok.me"), "Wild Race");
+test("names the install page Horsham Maps", () => {
+  assert.equal(appNameFromHost("localhost:8080"), "Horsham Maps");
+  assert.equal(appNameFromHost("172.17.154.217:8080"), "Horsham Maps");
+  assert.equal(appNameFromHost("wild-race.grok.me"), "Horsham Maps");
 });
 
 test("rejects hosts that are not plain slugs", () => {
-  assert.equal(appNameFromHost("<script>alert(1)</script>"), "Grok App");
-  assert.equal(appNameFromHost('"><img src=x onerror=1>.grok.me'), "Grok App");
+  assert.equal(appNameFromHost("<script>alert(1)</script>"), "Horsham Maps");
+  assert.equal(appNameFromHost('"><img src=x onerror=1>.grok.me'), "Horsham Maps");
 });
 
 test("renders install page markup", () => {
   const html = renderInstallPage("wild-race.grok.me", "/?install=1&platform=ios");
-  assert.match(html, /Add Wild Race to your/);
+  assert.match(html, /Add Horsham Maps to your/);
   assert.match(html, /\/__grok\/install\/styles\.css/);
   assert.match(html, /href="\/"/);
   assert.equal(html.includes("{{APP_NAME}}"), false);
@@ -193,10 +193,10 @@ test("escapes host-derived values in the install page", () => {
   assert.equal(html.includes("<script>alert(1)</script>"), false);
 });
 
-test("renders the manifest with the per-app name", () => {
+test("renders the manifest as Horsham Maps", () => {
   const manifest = JSON.parse(renderWebManifest("wild-race.grok.me"));
-  assert.equal(manifest.name, "Wild Race");
-  assert.equal(manifest.short_name, "Wild Race");
+  assert.equal(manifest.name, "Horsham Maps");
+  assert.equal(manifest.short_name, "Horsham Maps");
   assert.equal(manifest.icons[0].src, "/__grok/icon-180.png");
 });
 

@@ -37,7 +37,7 @@ export function markCompassGranted(): void {
 /** Location only. Call from a tap. Timeout / no-fix still counts as allowed. */
 export function requestGeoGrant(): Promise<boolean> {
   return new Promise((resolve) => {
-    if (!navigator.geolocation) {
+    if (isFramed() || !navigator.geolocation) {
       resolve(false);
       return;
     }
