@@ -127,3 +127,156 @@ export function formatEta(durationMin: number, from = new Date()): string {
     minute: "2-digit",
   });
 }
+
+/** west, south, east, north in lon/lat */
+export type LonLatBBox = [number, number, number, number];
+
+export function geomBBox(geometry: { type?: string; coordinates?: unknown } | null): LonLatBBox | null {
+  if (!geometry?.coordinates) return null;
+  let minLng = Infinity;
+  let minLat = Infinity;
+  let maxLng = -Infinity;
+  let maxLat = -Infinity;
+  const eat = (pt: unknown) => {
+    if (!Array.isArray(pt) || pt.length < 2) return;
+    if (typeof pt[0] === "number" && typeof pt[1] === "number") {
+      const lng = pt[0];
+      const lat = pt[1];
+      if (lng < minLng) minLng = lng;
+      if (lat < minLat) minLat = lat;
+      if (lng > maxLng) maxLng = lng;
+      if (lat > maxLat) maxLat = lat;
+      return;
+    }
+    for (const child of pt) eat(child);
+  };
+  eat(geometry.coordinates);
+  if (!Number.isFinite(minLng)) return null;
+  return [minLng, minLat, maxLng, maxLat];
+}
+
+export function bboxOverlaps(
+  bbox: LonLatBBox | null,
+  west: number,
+  south: number,
+  east: number,
+  north: number,
+): boolean {
+  if (!bbox) return false;
+  return bbox[0] <= east && bbox[2] >= west && bbox[1] <= north && bbox[3] >= south;
+}
+
+export const CORRIDOR_AHEAD_KM = 10;
+export const CORRIDOR_SIDE_KM = 1.5;
+export const CORRIDOR_BEHIND_KM = 0.5;
+
+function lineCoords(geometry: { type?: string; coordinates?: unknown } | null): [number, number][][] {
+  if (!geometry?.coordinates) return [];
+  if (geometry.type === "LineString") return [geometry.coordinates as [number, number][]];
+  if (geometry.type === "MultiLineString") return geometry.coordinates as [number, number][][];
+  return [];
+}
+
+function toTrack(
+  lat: number,
+  lng: number,
+  oLat: number,
+  oLng: number,
+  cosH: number,
+  sinH: number,
+): { along: number; across: number } {
+  const dLatKm = (lat - oLat) * 111.32;
+  const dLngKm = (lng - oLng) * 89.2;
+  return { along: dLatKm * cosH + dLngKm * sinH, across: -dLatKm * sinH + dLngKm * cosH };
+}
+
+/** Liang–Barsky: does the along/across segment hit the heading rectangle? */
+function segmentHitsCorridor(
+  aAlong: number,
+  aAcross: number,
+  bAlong: number,
+  bAcross: number,
+  aheadKm: number,
+  behindKm: number,
+  sideKm: number,
+): boolean {
+  let t0 = 0;
+  let t1 = 1;
+  const dx = bAlong - aAlong;
+  const dy = bAcross - aAcross;
+  const tests: [number, number][] = [
+    [-dx, aAlong + behindKm],
+    [dx, aheadKm - aAlong],
+    [-dy, aAcross + sideKm],
+    [dy, sideKm - aAcross],
+  ];
+  for (const [p, q] of tests) {
+    if (Math.abs(p) < 1e-15) {
+      if (q < 0) return false;
+      continue;
+    }
+    const r = q / p;
+    if (p < 0) {
+      if (r > t1) return false;
+      if (r > t0) t0 = r;
+    } else {
+      if (r < t0) return false;
+      if (r < t1) t1 = r;
+    }
+  }
+  return t0 <= t1;
+}
+
+/**
+ * True if a linestring hits the oriented heading corridor
+ * (~10 km ahead, ~1.5 km each side, ~0.5 km behind) — not a fat AABB around puck+tip.
+ */
+export function geomHitsHeadingCorridor(
+  geometry: { type?: string; coordinates?: unknown } | null,
+  bbox: LonLatBBox | null,
+  originLat: number,
+  originLng: number,
+  headingDeg: number,
+  aheadKm = CORRIDOR_AHEAD_KM,
+  sideKm = CORRIDOR_SIDE_KM,
+  behindKm = CORRIDOR_BEHIND_KM,
+): boolean {
+  const rad = (headingDeg * Math.PI) / 180;
+  const cosH = Math.cos(rad);
+  const sinH = Math.sin(rad);
+  const corners: [number, number][] = [];
+  for (const along of [-behindKm, aheadKm]) {
+    for (const across of [-sideKm, sideKm]) {
+      const dLatKm = along * cosH - across * sinH;
+      const dLngKm = along * sinH + across * cosH;
+      corners.push([originLat + dLatKm / 111.32, originLng + dLngKm / 89.2]);
+    }
+  }
+  let west = Infinity;
+  let south = Infinity;
+  let east = -Infinity;
+  let north = -Infinity;
+  for (const [lat, lng] of corners) {
+    if (lng < west) west = lng;
+    if (lat < south) south = lat;
+    if (lng > east) east = lng;
+    if (lat > north) north = lat;
+  }
+  if (!bboxOverlaps(bbox, west, south, east, north)) return false;
+  const lines = lineCoords(geometry);
+  for (const line of lines) {
+    for (let i = 1; i < line.length; i++) {
+      const a = line[i - 1];
+      const b = line[i];
+      if (!a || !b) continue;
+      const pa = toTrack(a[1], a[0], originLat, originLng, cosH, sinH);
+      const pb = toTrack(b[1], b[0], originLat, originLng, cosH, sinH);
+      if (segmentHitsCorridor(pa.along, pa.across, pb.along, pb.across, aheadKm, behindKm, sideKm)) return true;
+    }
+    if (line.length === 1 && line[0]) {
+      const p = toTrack(line[0][1], line[0][0], originLat, originLng, cosH, sinH);
+      if (p.along >= -behindKm && p.along <= aheadKm && Math.abs(p.across) <= sideKm) return true;
+    }
+  }
+  return false;
+}

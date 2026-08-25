@@ -86,6 +86,7 @@ export function MapApp() {
   const drivePrefetchAt = useRef(0);
   const paintFixRef = useRef<(fix: GpsFix) => void>(() => {});
   const gpsIconKeyRef = useRef("");
+  const driveModeRef = useRef(false);
 
   const [ready, setReady] = useState(false);
   const [query, setQuery] = useState("");
@@ -206,10 +207,11 @@ export function MapApp() {
       if (on && !ctx.map.hasLayer(layer)) layer.addTo(ctx.map);
       if (!on && ctx.map.hasLayer(layer)) ctx.map.removeLayer(layer);
     };
-    showLayer(ctx.roadLines, dataOn);
-    showLayer(ctx.roadChunks, dataOn);
+    const driving = driveModeRef.current;
+    showLayer(ctx.roadLines, dataOn && !driving);
+    showLayer(ctx.roadChunks, dataOn && !driving);
     showLayer(ctx.grading, gradeOn);
-    showLayer(ctx.places, showPlacesRef.current);
+    showLayer(ctx.places, showPlacesRef.current && !driving);
   }
 
   function applyMapBearing(trueHeading: number) {
@@ -285,6 +287,22 @@ export function MapApp() {
     speedRef.current = fix.speed;
     headingRef.current = drive.current.heading || (fix.heading ?? headingRef.current);
     drive.current.ingest(fix);
+    const kmh = fix.speed > 0 ? fix.speed * 3.6 : 0;
+    let driving = driveModeRef.current;
+    if (gpsModeRef.current === "follow" && headingModeRef.current === "heading") {
+      if (driving) {
+        if (kmh < 4) driving = false;
+      } else if (kmh >= 8) {
+        driving = true;
+      }
+    } else {
+      driving = false;
+    }
+    if (driving !== driveModeRef.current) {
+      driveModeRef.current = driving;
+      handle.current?.setDriveMode?.(driving);
+      applyOverlays();
+    }
     const ctxNow = handle.current;
     if (ctxNow) {
       const t = performance.now();
@@ -572,6 +590,16 @@ export function MapApp() {
     if (!ready) return;
     handle.current?.paintLabels?.();
   }, [headingMode, gpsMode, ready]);
+
+  useEffect(() => {
+    if (!ready) return;
+    if (gpsMode === "follow" && headingMode === "heading") return;
+    if (!driveModeRef.current) return;
+    driveModeRef.current = false;
+    handle.current?.setDriveMode?.(false);
+    applyOverlays();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gpsMode, headingMode, ready]);
 
   useEffect(() => {
     if (!settingsOpen) return;

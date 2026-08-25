@@ -1,6 +1,6 @@
 import type { Circle, GeoJSON, LayerGroup, Map as LeafletMap, Marker, TileLayer } from "leaflet";
 import type { MutableRefObject } from "react";
-import { lineLengthKm, lineMostlyInRing } from "@/lib/maps/geo";
+import { bboxOverlaps, geomBBox, geomHitsHeadingCorridor, lineLengthKm, lineMostlyInRing } from "@/lib/maps/geo";
 import { loadLeaflet, mapCanRotate } from "@/lib/maps/leaflet";
 import { DriveEngine } from "@/lib/maps/drive-engine";
 import {
@@ -51,6 +51,9 @@ export type MapHandle = {
   accuracy?: Circle;
   canRotate: boolean;
   paintLabels?: () => void;
+  driveMode?: boolean;
+  syncVisibleRoads?: () => void;
+  setDriveMode?: (on: boolean) => void;
 };
 
 export type BootArgs = {
@@ -353,6 +356,10 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
     const paintLabels = () => {
       ctx.names.clearLayers();
       const here = lastGps.current;
+      if (ctx.driveMode) {
+        if (here && junctions.length) paintJunctionLabels(here, headingRef.current);
+        return;
+      }
       if (headingModeRef.current === "heading" && here && junctions.length) {
         let nearby = 0;
         for (const j of junctions) {
@@ -373,7 +380,7 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
     map.on("moveend zoomend", () => {
       window.clearTimeout(labelTimer);
       if (gpsModeRef.current === "follow" && headingModeRef.current === "heading") {
-        labelTimer = window.setTimeout(() => paintPlaces(), 140);
+        labelTimer = window.setTimeout(() => (ctx.driveMode ? paintLabels() : paintPlaces()), 140);
         return;
       }
       labelTimer = window.setTimeout(() => ctx.paintLabels?.(), 140);
@@ -404,7 +411,7 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
         drive.snaps = snaps;
         const loaded = new Set<string>();
         const syncChunks = async () => {
-          if (cancelled || map.getZoom() < ROAD_CHUNK_ZOOM) return;
+          if (cancelled || ctx.driveMode || map.getZoom() < ROAD_CHUNK_ZOOM) return;
           const b = map.getBounds();
           const index = await roadChunkIndex();
           let keys = visibleChunkKeys(b.getWest(), b.getSouth(), b.getEast(), b.getNorth());
@@ -441,15 +448,33 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
       const features = (
         (data.features ?? []) as { geometry: { type?: string; coordinates?: unknown }; properties?: Record<string, string> }[]
       ).filter((f) => !ring || lineMostlyInRing(f.geometry, ring));
+      type GradeFeat = {
+        feature: { type: "Feature"; geometry: { type?: string; coordinates?: unknown }; properties?: Record<string, string> };
+        bbox: [number, number, number, number] | null;
+      };
+      const indexed: GradeFeat[] = features.map((f) => ({
+        feature: { type: "Feature", geometry: f.geometry, properties: f.properties },
+        bbox: geomBBox(f.geometry),
+      }));
+      const overlayParent = map.getPane("overlayPane") ?? map.getPane("rotatePane") ?? map.getContainer();
       if (!map.getPane("roadsPane")) {
-        const parent = map.getPane("overlayPane") ?? map.getPane("rotatePane") ?? map.getContainer();
-        map.createPane("roadsPane", parent);
+        map.createPane("roadsPane", overlayParent);
         const pane = map.getPane("roadsPane");
         if (pane) pane.style.zIndex = "420";
       }
-      ctx.grading = L.geoJSON({ type: "FeatureCollection", features } as import("geojson").FeatureCollection, {
-        pane: "roadsPane",
-        renderer: L.canvas({ padding: 0.35, tolerance: 2 }),
+      if (!map.getPane("gradingPane")) {
+        map.createPane("gradingPane", overlayParent);
+        const pane = map.getPane("gradingPane");
+        if (pane) {
+          pane.style.zIndex = "450";
+          pane.style.pointerEvents = "auto";
+        }
+      }
+      // Empty layer + viewport addData. SVG (not canvas) so orange roads stay visible at MAX zoom.
+      ctx.grading = L.geoJSON({ type: "FeatureCollection", features: [] } as import("geojson").FeatureCollection, {
+        pane: "gradingPane",
+        renderer: L.svg({ padding: 0.8 }),
+        smoothFactor: 0.5,
         style: gradeStyle("hybrid"),
         onEachFeature: (feat, layer) => {
           const props = (feat.properties ?? {}) as Record<string, string | number>;
@@ -479,6 +504,45 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
           });
         },
       } as import("leaflet").GeoJSONOptions).addTo(map);
+      let lastGradeKey = "";
+      let gradeTimer = 0;
+      const syncVisibleRoads = () => {
+        if (cancelled || !ctx.grading) return;
+        const b = map.getBounds().pad(0.15);
+        const west = b.getWest();
+        const south = b.getSouth();
+        const east = b.getEast();
+        const north = b.getNorth();
+        const zoomedIn = map.getZoom() >= 12;
+        const here = lastGps.current;
+        const heading = headingRef.current;
+        const useCorridor = Boolean(ctx.driveMode && here && zoomedIn);
+        let visible = indexed.filter((item) => bboxOverlaps(item.bbox, west, south, east, north));
+        if (useCorridor && here) {
+          visible = visible.filter((item) =>
+            geomHitsHeadingCorridor(item.feature.geometry, item.bbox, here[0], here[1], heading),
+          );
+        }
+        const hdKey = useCorridor ? Math.round(heading / 5) * 5 : 0;
+        const key = `${west.toFixed(4)},${south.toFixed(4)},${east.toFixed(4)},${north.toFixed(4)},${useCorridor ? 1 : 0},${hdKey},${visible.length}`;
+        if (key === lastGradeKey) return;
+        lastGradeKey = key;
+        ctx.grading.clearLayers();
+        ctx.grading.addData({ type: "FeatureCollection", features: visible.map((item) => item.feature) } as import("geojson").FeatureCollection);
+      };
+      ctx.syncVisibleRoads = syncVisibleRoads;
+      ctx.setDriveMode = (on: boolean) => {
+        if (ctx.driveMode === on) return;
+        ctx.driveMode = on;
+        lastGradeKey = "";
+        syncVisibleRoads();
+        ctx.paintLabels?.();
+      };
+      map.on("moveend zoomend", () => {
+        window.clearTimeout(gradeTimer);
+        gradeTimer = window.setTimeout(syncVisibleRoads, 120);
+      });
+      syncVisibleRoads();
       const names = new Map<string, string>();
       for (const f of features) {
         const nm = roadKey(String(f.properties?.Road_name ?? f.properties?.name ?? ""));
