@@ -543,7 +543,7 @@ export function MapApp() {
     const t = window.setTimeout(() => {
       setSearching(true);
       setSearchNote("");
-      void searchPlaces(query)
+      void searchPlaces(query, lastGps.current)
         .then((list) => {
           setHits(list);
           setSearchNote(list.length ? "" : "No matching addresses");

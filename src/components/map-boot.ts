@@ -184,14 +184,17 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
     satellite.on("tileerror", (ev: { tile?: HTMLImageElement; coords?: { z: number; x: number; y: number } }) => {
       const img = ev.tile;
       const src = img?.getAttribute("src") || "";
-      if (!img || img.dataset.fallback === "1") return;
-      img.dataset.fallback = "1";
-      if (src.includes("/tiles/best/")) {
-        img.src = src.replace("/tiles/best/", "/tiles/sat/");
+      if (!img) return;
+      const step = img.dataset.fallback || "";
+      if (!step && src.includes("/tiles/best/")) {
+        img.dataset.fallback = "vic";
+        img.src = src.replace("/tiles/best/", "/tiles/vic/");
         return;
       }
-      const c = ev.coords;
-      if (c) img.src = `/api/tiles/sat/${c.z}/${c.x}/${c.y}`;
+      if (step === "vic" && src.includes("/tiles/vic/")) {
+        img.dataset.fallback = "sat";
+        img.src = src.replace("/tiles/vic/", "/tiles/sat/");
+      }
     });
     satellite.addTo(map);
     window.requestAnimationFrame(() => {

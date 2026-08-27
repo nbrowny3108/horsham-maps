@@ -51,41 +51,44 @@ function useful(tile: Grab, min = 6000): boolean {
   return tile.ok && tile.body.byteLength >= min;
 }
 
+async function grabVic(z: string, x: string, y: string): Promise<Grab> {
+  const png = await grab(UPSTREAM.vicPng(z, x, y), 2800);
+  if (useful(png, 4000)) return png;
+  const jpg = await grab(UPSTREAM.vic(z, x, y), 1400);
+  if (useful(jpg, 4000)) return jpg;
+  return png.ok ? png : jpg;
+}
+
 let vicStreak = 0;
 
-/** One imagery source per tile. Vicmap first at driving zoom, Esri if Vicmap is slow. */
+/** One imagery source per tile. Driving zoom uses Vicmap PNG; Esri only if Vicmap is empty. */
 async function pickBest(z: string, x: string, y: string): Promise<Grab> {
   const zoom = Number(z);
   if (zoom > 16) {
-    const vic = await grab(UPSTREAM.vic(z, x, y), 1600);
+    const vic = await grabVic(z, x, y);
     if (useful(vic, 4000)) {
       vicStreak += 1;
       return vic;
     }
     const esri = await grab(UPSTREAM.sat(z, x, y), 2800);
-    if (useful(esri, 2500)) {
+    if (useful(esri, 4000)) {
       vicStreak = 0;
       return esri;
     }
-    const png = await grab(UPSTREAM.vicPng(z, x, y), 1600);
-    if (useful(png, 4000)) {
-      vicStreak += 1;
-      return png;
-    }
-    return esri.ok ? esri : useful(vic, 32) ? vic : png;
+    return vic.ok ? vic : esri;
   }
 
   const esri = await grab(UPSTREAM.sat(z, x, y), 2800);
-  if (useful(esri)) {
+  if (useful(esri, 6000)) {
     vicStreak = 0;
     return esri;
   }
-  const vic = await grab(UPSTREAM.vic(z, x, y), 1800);
+  const vic = await grabVic(z, x, y);
   if (useful(vic, 4000)) {
     vicStreak += 1;
     return vic;
   }
-  return esri;
+  return esri.ok && esri.body.byteLength >= 4000 ? esri : vic;
 }
 
 export const Route = createFileRoute("/api/tiles/$")({
@@ -99,10 +102,14 @@ export const Route = createFileRoute("/api/tiles/$")({
         if (!kind || !z || !x || !y) return new Response("not found", { status: 404 });
         const key = `${kind}/${z}/${x}/${y}`;
         const hit = tileMemo.get(key);
-        if (hit) {
+        if (hit && hit.body.byteLength >= 4000) {
           return new Response(hit.body, {
             status: 200,
-            headers: { "content-type": hit.type, ...CACHE_HEADERS },
+            headers: {
+              "content-type": hit.type,
+              "content-length": String(hit.body.byteLength),
+              ...CACHE_HEADERS,
+            },
           });
         }
         try {
@@ -112,13 +119,17 @@ export const Route = createFileRoute("/api/tiles/$")({
           } else {
             const build = UPSTREAM[kind as "street" | "sat" | "vic"];
             tile = await grab(build(z, x, y));
-            if (!tile.ok && kind === "vic") tile = await grab(UPSTREAM.vicPng(z, x, y));
+            if (!tile.ok && kind === "vic") tile = await grab(UPSTREAM.vicPng(z, x, y), 2800);
           }
-          if (!tile.ok) return new Response("tile error", { status: 502 });
-          remember(key, tile.body, tile.type);
+          if (!tile.ok || tile.body.byteLength < 400) return new Response("tile error", { status: 502 });
+          if (tile.body.byteLength >= 4000) remember(key, tile.body, tile.type);
           return new Response(tile.body, {
             status: 200,
-            headers: { "content-type": tile.type, ...CACHE_HEADERS },
+            headers: {
+              "content-type": tile.type,
+              "content-length": String(tile.body.byteLength),
+              ...CACHE_HEADERS,
+            },
           });
         } catch {
           return new Response("tile error", { status: 502 });

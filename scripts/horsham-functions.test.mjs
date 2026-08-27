@@ -196,3 +196,14 @@ test("sleep resolves", async () => {
   await backoff.sleep(15);
   assert.ok(Date.now() - t0 >= 10);
 });
+
+test("local search: Plush H Rd finds Plush Hannans Road", () => {
+  const rows = [
+    { name: "Plush Hannans Road", lat: -36.80511, lng: 142.09925, kind: "road" },
+    { name: "Plushs Road", lat: -37.02257, lng: 141.76067, kind: "road" },
+    { name: "Natimuk Road", lat: -36.74, lng: 141.94, kind: "road" },
+  ];
+  const hits = places.matchLocalHits("Plush H Rd", rows, [-36.7195, 142.1965]);
+  assert.equal(hits[0]?.display_name.startsWith("Plush Hannans Road"), true);
+  assert.ok(places.scoreLocalName("Plush H Rd", "Plush Hannans Road") > places.scoreLocalName("Plush H Rd", "Plushs Road"));
+});

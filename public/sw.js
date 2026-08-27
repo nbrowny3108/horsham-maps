@@ -1,5 +1,5 @@
-const APP = "horsham-app-v21";
-const TILES = "horsham-tiles-v4";
+const APP = "horsham-app-v23";
+const TILES = "horsham-tiles-v5";
 const DATA = "horsham-data-v1";
 const KEEP = new Set([APP, TILES, DATA]);
 
@@ -79,7 +79,10 @@ async function tileOnly(request) {
   const t = setTimeout(() => ctrl.abort(), 8000);
   try {
     const res = await fetch(request, { signal: ctrl.signal });
-    if (res && res.ok) cache.put(key, res.clone()).catch(() => {});
+    if (res && res.ok) {
+      const len = Number(res.headers.get("content-length") || 0);
+      if (len === 0 || len >= 4000) cache.put(key, res.clone()).catch(() => {});
+    }
     return res;
   } catch {
     return new Response("", { status: 504 });
