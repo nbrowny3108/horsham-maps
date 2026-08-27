@@ -113,6 +113,11 @@ mapEl,
     routes,
     place,
     remainKm,
+    navActive,
+    nextTurn,
+    pickRoute,
+    clearRoute,
+    wipeTrack,
     routing,
     searchOpen,
     query,
@@ -220,7 +225,20 @@ mapEl,
         <p className="absolute left-2 right-2 z-[1500] mx-auto max-w-sm rounded-md bg-elevated px-3 py-2 text-sm text-danger shadow-md top-[max(4.5rem,env(safe-area-inset-top))]">{error}</p>
       ) : null}
 
-      {place ? (
+      {navActive && nextTurn && !layersOpen && !settingsOpen ? (
+        <div className="pointer-events-none absolute inset-x-2 z-[1700] mx-auto max-w-sm top-[max(0.7rem,env(safe-area-inset-top))]">
+          <div className="rounded-md bg-primary px-3 py-2 text-primary-fg shadow-md">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-primary-fg/80">Next turn</p>
+            <p className="text-base font-semibold leading-tight">{nextTurn.instruction}</p>
+            <p className="mt-0.5 text-sm font-medium tabular-nums">
+              {formatDistance(nextTurn.km)}
+              {remainKm != null ? ` · ${formatDistance(remainKm)} left` : ""}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {place && !navActive ? (
         <section className="pointer-events-auto absolute inset-x-2 z-[1600] mx-auto max-w-sm overflow-y-auto top-[max(4.25rem,env(safe-area-inset-top))] max-h-[min(42vh,calc(100%-140px))]">
           <div className="rounded-md bg-elevated p-3 shadow-md">
             <p className="text-sm font-semibold">{place.title}</p>
@@ -380,7 +398,7 @@ mapEl,
                 {compassLive ? `${Math.round(heading)}° heading` : "Tap once for compass"}
               </p>
             ) : null}
-            {gpsLabel ? <p className="mt-0.5 text-[10px] tabular-nums text-muted">{gpsLabel}</p> : null}
+            {gpsLabel ? <p className="mt-0.5 text-[10px] tabular-nums text-muted">{gpsLabel}</p> : <p className="mt-0.5 text-[10px] text-muted">sats —</p>}
           </div>
         </div>
         {currentRoad ? (
@@ -396,36 +414,6 @@ mapEl,
           </div>
         ) : null}
       </div>
-      ) : null}
-
-      {routes.length > 0 && !layersOpen && !settingsOpen ? (
-        <div className="pointer-events-auto fixed z-[10001] bottom-[118px] left-[9.25rem] right-[4.25rem]">
-          <ul className="flex gap-1.5">
-            {routes.map((opt: RouteOption) => (
-              <li key={opt.id} className="min-w-0 flex-1">
-                <button
-                  type="button"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onPointerUp={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setActiveRouteId(opt.id);
-                    drawRoutes(routes, opt.id);
-                  }}
-                  className={cn(
-                    "min-h-12 w-full rounded-md px-1.5 py-1 text-[11px] font-medium shadow-md",
-                    opt.id === activeRoute?.id ? "bg-primary text-primary-fg" : "bg-elevated text-fg",
-                  )}
-                >
-                  <span className="block truncate">{opt.label}</span>
-                  <span className="block text-xs opacity-90">
-                    {formatDuration(opt.durationMin)} · {formatDistance(opt.distanceKm)}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
       ) : null}
 
       {!layersOpen && !settingsOpen ? (
@@ -535,6 +523,36 @@ mapEl,
         ) : null}
         {settingsOpen ? (
           <div className="max-h-[58vh] overflow-y-auto border-b border-border p-3">
+            {routes.length > 0 ? (
+              <>
+                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-subtle">Routes</p>
+                <ul className="mb-2 grid gap-1.5">
+                  {routes.map((opt: RouteOption) => (
+                    <li key={opt.id}>
+                      <button
+                        type="button"
+                        onClick={() => pickRoute(opt.id)}
+                        className={cn(
+                          "flex min-h-11 w-full items-center justify-between rounded-sm px-3 text-left text-sm",
+                          opt.id === activeRoute?.id ? "bg-primary text-primary-fg" : "bg-bg text-fg",
+                        )}
+                      >
+                        <span className="font-medium">{opt.label}</span>
+                        <span className="text-xs tabular-nums">
+                          {formatDuration(opt.durationMin)} · {formatDistance(opt.distanceKm)}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <button type="button" onClick={() => clearRoute()} className="mb-1.5 h-11 w-full rounded-sm bg-bg text-sm font-medium">
+                  End route
+                </button>
+              </>
+            ) : null}
+            <button type="button" onClick={() => wipeTrack()} className="mb-3 h-11 w-full rounded-sm bg-bg text-sm font-medium">
+              Clear last track
+            </button>
             <p className="mb-1 text-xs font-medium uppercase tracking-wide text-subtle">Map zoom</p>
             <div className="mb-1 grid grid-cols-2 gap-1.5">
               <button

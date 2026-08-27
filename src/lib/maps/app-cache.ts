@@ -2,36 +2,9 @@ export const DATA_CACHE = "horsham-data-v1";
 
 type Json = Record<string, unknown>;
 
-function isStandalone(): boolean {
-  if (typeof window === "undefined") return false;
-  const media = window.matchMedia?.("(display-mode: standalone)")?.matches;
-  const ios = Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
-  return Boolean(media || ios);
-}
-
 export function registerAppCache(): void {
   if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
-  void navigator.serviceWorker.register("/sw.js").then((reg) => {
-    reg.addEventListener("updatefound", () => {
-      const sw = reg.installing;
-      if (!sw) return;
-      sw.addEventListener("statechange", () => {
-        if (sw.state === "installed" && navigator.serviceWorker.controller) {
-          sw.postMessage("SKIP_WAITING");
-        }
-      });
-    });
-    if (reg.waiting) reg.waiting.postMessage("SKIP_WAITING");
-  }).catch(() => {});
-
-  if ((registerAppCache as { armed?: boolean }).armed) return;
-  (registerAppCache as { armed?: boolean }).armed = true;
-  let refreshing = false;
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (refreshing) return;
-    refreshing = true;
-    if (isStandalone()) window.location.reload();
-  });
+  void navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
 
 export async function cachedJson(url: string): Promise<Json> {
@@ -86,7 +59,6 @@ async function dataUrls(): Promise<string[]> {
     "/data/junctions.geojson",
     "/data/vic-arterials.geojson",
     "/data/roads-major.geojson",
-    "/data/roads.geojson",
     "/data/roads/index.json",
     "/api/grading",
   ];
@@ -115,7 +87,10 @@ export function startBackgroundCache(_here?: [number, number] | null): void {
   registerAppCache();
   if (warming) return;
   warming = true;
-  void warmAppCache().finally(() => {
-    warming = false;
-  });
+  const later = typeof window !== "undefined" ? window.setTimeout.bind(window) : setTimeout;
+  later(() => {
+    void warmAppCache().finally(() => {
+      warming = false;
+    });
+  }, 8000);
 }

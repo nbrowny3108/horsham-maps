@@ -33,6 +33,11 @@ type DriveHooks = {
   onHud: (hud: Partial<DriveHud>) => void;
 };
 
+function gpsQuality(fix: GpsFix): string {
+  const sats = fix.sats == null ? "sats —" : `${fix.sats} sats`;
+  return `${sats} · ±${Math.round(fix.accuracy)} m`;
+}
+
 export class DriveEngine {
   readonly compass = new HeadingEngine();
   last: [number, number] | null = null;
@@ -67,6 +72,8 @@ export class DriveEngine {
     this.hooks = hooks;
     this.compass.start();
     this.lastFrame = performance.now();
+    this.lastZoomAt = performance.now();
+    this.lastPan = performance.now();
     this.raf = window.requestAnimationFrame(this.loop);
     this.wake = holdScreenWakeLock();
   }
@@ -89,7 +96,6 @@ export class DriveEngine {
 
   setAutoZoom(on: boolean): void {
     this.autoZoom = on;
-    if (on) this.lastZoomAt = 0;
   }
 
   isAutoZoom(): boolean {
@@ -147,7 +153,7 @@ export class DriveEngine {
       speedKmh: fix.speed > 0 ? fix.speed * 3.6 : null,
       road: this.road,
       next: this.next,
-      gpsLabel: `${Math.abs(fix.lat).toFixed(5)}°S ${Math.abs(fix.lng).toFixed(5)}°E`,
+      gpsLabel: gpsQuality(fix),
       hasFix: true,
     });
     if (!this.hooks?.follow()) this.hooks?.setGpsLatLng(here);
@@ -167,7 +173,8 @@ export class DriveEngine {
     if (!hooks?.headingUp() || !map || !Number.isFinite(this.heading)) return;
     const deg = toLeafletBearing(this.heading);
     const delta = Math.abs(((deg - this.lastBearing + 540) % 360) - 180);
-    if (delta < 0.85) return;
+    const dead = this.speed < 2.2 ? 6 : 0.85;
+    if (delta < dead) return;
     this.lastBearing = deg;
     if (hooks.canRotate() && map.setBearing) {
       try {
@@ -217,11 +224,12 @@ export class DriveEngine {
           Math.abs(cam.lat - this.lastCam[0]) > 3.5e-5 ||
           Math.abs(cam.lng - this.lastCam[1]) > 4e-5;
         const zNow = map.getZoom();
-        const wantAuto = this.autoZoom && now - this.lastZoomAt > 2200;
+        const kmh = this.speed * 3.6;
+        const wantAuto = this.autoZoom && now - this.lastZoomAt > 4500 && kmh >= 8;
         let z = zNow;
         let zooming = false;
         if (wantAuto) {
-          const target = zoomForSpeed(this.speed * 3.6, zNow);
+          const target = zoomForSpeed(kmh, zNow);
           if (Math.abs(target - zNow) >= 0.45) {
             z = target;
             zooming = true;
@@ -237,7 +245,7 @@ export class DriveEngine {
           this.panning = false;
         }
       }
-      if (hooks.headingUp() && now - this.lastNames > 2200) {
+      if (hooks.headingUp() && now - this.lastNames > 800) {
         this.lastNames = now;
         hooks.paintLabels();
       }

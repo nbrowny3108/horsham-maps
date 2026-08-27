@@ -4,6 +4,7 @@ export type GpsFix = {
   accuracy: number;
   heading: number | null;
   speed: number;
+  sats: number | null;
 };
 
 export function isFramed(): boolean {
@@ -33,6 +34,17 @@ export async function queryGeoPermission(): Promise<"granted" | "denied" | "prom
   return "unknown";
 }
 
+function readSats(coords: GeolocationCoordinates): number | null {
+  const extra = coords as GeolocationCoordinates & {
+    satelliteNumber?: number;
+    satellites?: number;
+    sats?: number;
+  };
+  const n = extra.satelliteNumber ?? extra.satellites ?? extra.sats;
+  if (typeof n === "number" && Number.isFinite(n) && n > 0 && n < 80) return Math.round(n);
+  return null;
+}
+
 function readFix(pos: GeolocationPosition): GpsFix {
   const heading = pos.coords.heading;
   const speed = pos.coords.speed;
@@ -42,6 +54,7 @@ function readFix(pos: GeolocationPosition): GpsFix {
     accuracy: Math.max(8, pos.coords.accuracy || 20),
     heading: typeof heading === "number" && heading >= 0 ? heading : null,
     speed: typeof speed === "number" && Number.isFinite(speed) && speed >= 0 ? speed : 0,
+    sats: readSats(pos.coords),
   };
 }
 

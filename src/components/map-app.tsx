@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { GeoJSON, LayerGroup } from "leaflet";
 import { MapChrome } from "./map-chrome";
 import { bootMap, type MapHandle } from "./map-boot";
-import { remainingKmAlong } from "@/lib/maps/geo";
+import { remainingKmAlong, nextRouteTurn } from "@/lib/maps/geo";
 import { armCompassOnTap, requestMotionPermissions, toLeafletBearing } from "@/lib/maps/heading";
 import { queryGeoPermission, startGpsWatch, isFramed, type GpsFix } from "@/lib/maps/gps";
 import { DriveEngine } from "@/lib/maps/drive-engine";
@@ -36,6 +36,9 @@ import {
   loadPlacesOn,
   loadRecents,
   loadSensorsOnboarded,
+  loadTrack,
+  appendTrackPoint,
+  clearTrack,
   pushRecent,
   saveAlwaysGps,
   saveAlwaysMotion,
@@ -83,10 +86,10 @@ export function MapApp() {
   const setZoomPctRef = useRef<(n: number) => void>(() => {});
   const setZoomModeRef = useRef<(auto: boolean) => void>(() => {});
   const remainAtRef = useRef(0);
+  const trackPts = useRef<[number, number][]>(loadTrack());
   const drivePrefetchAt = useRef(0);
   const paintFixRef = useRef<(fix: GpsFix) => void>(() => {});
   const gpsIconKeyRef = useRef("");
-  const driveModeRef = useRef(false);
 
   const [ready, setReady] = useState(false);
   const [query, setQuery] = useState("");
@@ -110,6 +113,14 @@ export function MapApp() {
   const [error, setError] = useState<string | null>(null);
   const [routes, setRoutes] = useState<RouteOption[]>([]);
   const [activeRouteId, setActiveRouteId] = useState<string | null>(null);
+  const [navActive, setNavActive] = useState(false);
+  const [nextTurn, setNextTurn] = useState<{ instruction: string; km: number } | null>(null);
+  const navRef = useRef(false);
+  const routesRef = useRef(routes);
+  const activeIdRef = useRef(activeRouteId);
+  routesRef.current = routes;
+  activeIdRef.current = activeRouteId;
+  navRef.current = navActive;
   const [routing, setRouting] = useState(false);
   const [showShire, setShowShire] = useState(true);
   const [showMapData, setShowMapData] = useState(() => loadMapDataOn());
@@ -123,14 +134,14 @@ export function MapApp() {
   const [currentRoad, setCurrentRoad] = useState("");
   const [nextRoad, setNextRoad] = useState("");
   const [remainKm, setRemainKm] = useState<number | null>(null);
-  const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
+  const [online, setOnline] = useState(true);
   const [savingOffline, setSavingOffline] = useState<string | null>(null);
   const [library, setLibrary] = useState<LibraryFile[]>([]);
   const [libraryUsedMb, setLibraryUsedMb] = useState(0);
   const [libraryQuotaMb, setLibraryQuotaMb] = useState(0);
   const [libraryBusy, setLibraryBusy] = useState<string | null>(null);
   const [offlineAt, setOfflineAt] = useState<number | null>(() => loadOfflineAt());
-  const [needStart, setNeedStart] = useState(() => !loadSensorsOnboarded());
+  const [needStart, setNeedStart] = useState(false);
   const [zoomPct, setZoomPct] = useState(80);
   const [autoZoom, setAutoZoom] = useState(() => loadAutoZoom());
   const [locating, setLocating] = useState(false);
@@ -207,11 +218,10 @@ export function MapApp() {
       if (on && !ctx.map.hasLayer(layer)) layer.addTo(ctx.map);
       if (!on && ctx.map.hasLayer(layer)) ctx.map.removeLayer(layer);
     };
-    const driving = driveModeRef.current;
-    showLayer(ctx.roadLines, dataOn && !driving);
-    showLayer(ctx.roadChunks, dataOn && !driving);
+    showLayer(ctx.roadLines, dataOn);
+    showLayer(ctx.roadChunks, dataOn);
     showLayer(ctx.grading, gradeOn);
-    showLayer(ctx.places, showPlacesRef.current && !driving);
+    showLayer(ctx.places, showPlacesRef.current);
   }
 
   function applyMapBearing(trueHeading: number) {
@@ -287,21 +297,13 @@ export function MapApp() {
     speedRef.current = fix.speed;
     headingRef.current = drive.current.heading || (fix.heading ?? headingRef.current);
     drive.current.ingest(fix);
-    const kmh = fix.speed > 0 ? fix.speed * 3.6 : 0;
-    let driving = driveModeRef.current;
-    if (gpsModeRef.current === "follow" && headingModeRef.current === "heading") {
-      if (driving) {
-        if (kmh < 4) driving = false;
-      } else if (kmh >= 8) {
-        driving = true;
-      }
-    } else {
-      driving = false;
-    }
-    if (driving !== driveModeRef.current) {
-      driveModeRef.current = driving;
-      handle.current?.setDriveMode?.(driving);
-      applyOverlays();
+    trackPts.current = appendTrackPoint(trackPts.current, here[0], here[1]);
+    const ctxTrack = handle.current;
+    if (ctxTrack?.track) {
+      ctxTrack.track.setLatLngs(trackPts.current);
+      const showTrack = trackPts.current.length >= 2 && !navRef.current;
+      if (showTrack && !ctxTrack.map.hasLayer(ctxTrack.track)) ctxTrack.track.addTo(ctxTrack.map);
+      if (!showTrack && ctxTrack.map.hasLayer(ctxTrack.track)) ctxTrack.map.removeLayer(ctxTrack.track);
     }
     const ctxNow = handle.current;
     if (ctxNow) {
@@ -327,6 +329,10 @@ export function MapApp() {
       if (now - remainAtRef.current > 700) {
         remainAtRef.current = now;
         setRemainKm(remainingKmAlong(path, here[0], here[1]));
+        if (navRef.current) {
+          const opt = routesRef.current.find((r) => r.id === activeIdRef.current);
+          setNextTurn(nextRouteTurn(opt?.steps, path, here[0], here[1]));
+        }
       }
     }
     if (headingModeRef.current !== "heading" && fix.heading != null) {
@@ -431,41 +437,54 @@ export function MapApp() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    let dead = false;
     let stopBoot: (() => void) | undefined;
+
+    const waitFrame = () => new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+
     void (async () => {
-      if (!mapEl.current || handle.current) return;
-      stopBoot = await bootMap({
-        mapEl: mapEl.current,
-        handle,
-        drive: drive.current,
-        lastGps,
-        speedRef,
-        headingRef,
-        gpsModeRef,
-        headingModeRef,
-        showPlacesRef,
-        needStartRef,
-        userZoomRef,
-        pinAimRef,
-        setReady,
-        setZoomPct: (n) => setZoomPctRef.current(n),
-        setError,
-        setGpsMode,
-        setPlace,
-        setGradingCount,
-        setGradingKm,
-        setGradingNote,
-        paintFix: (fix) => paintFixRef.current(fix),
-        dropPlace,
-        styleRoadLayers,
-      });
-      if (cancelled) stopBoot?.();
+      for (let i = 0; i < 8 && !dead && !mapEl.current; i += 1) await waitFrame();
+      if (dead || !mapEl.current) return;
+      try {
+        stopBoot = await bootMap({
+          mapEl: mapEl.current,
+          handle,
+          drive: drive.current,
+          lastGps,
+          speedRef,
+          headingRef,
+          gpsModeRef,
+          headingModeRef,
+          showPlacesRef,
+          needStartRef,
+          userZoomRef,
+          pinAimRef,
+          setReady,
+          setZoomPct: (n) => setZoomPctRef.current(n),
+          setError,
+          setGpsMode,
+          setPlace,
+          setGradingCount,
+          setGradingKm,
+          setGradingNote,
+          paintFix: (fix) => paintFixRef.current(fix),
+          dropPlace,
+          styleRoadLayers,
+          isDead: () => dead,
+        });
+      } catch {
+        if (!dead) setError("Map failed to start — close the app and open it again");
+      }
+      if (dead) stopBoot?.();
     })();
     return () => {
-      cancelled = true;
+      dead = true;
       stopBoot?.();
-      handle.current?.map.remove();
+      try {
+        handle.current?.map.remove();
+      } catch {
+        /* already gone */
+      }
       handle.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -505,6 +524,7 @@ export function MapApp() {
   useEffect(() => {
     const on = () => setOnline(true);
     const off = () => setOnline(false);
+    setOnline(navigator.onLine);
     window.addEventListener("online", on);
     window.addEventListener("offline", off);
     return () => {
@@ -592,16 +612,6 @@ export function MapApp() {
   }, [headingMode, gpsMode, ready]);
 
   useEffect(() => {
-    if (!ready) return;
-    if (gpsMode === "follow" && headingMode === "heading") return;
-    if (!driveModeRef.current) return;
-    driveModeRef.current = false;
-    handle.current?.setDriveMode?.(false);
-    applyOverlays();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gpsMode, headingMode, ready]);
-
-  useEffect(() => {
     if (!settingsOpen) return;
     void refreshLibrary();
   }, [settingsOpen]);
@@ -618,6 +628,7 @@ export function MapApp() {
 
   useEffect(() => {
     if (!ready) return;
+    if (!loadSensorsOnboarded()) setNeedStart(true);
     startBackgroundCache(lastGps.current);
     if (!isFramed()) {
       beginGps();
@@ -772,11 +783,13 @@ export function MapApp() {
     }
     setRouting(true);
     setError(null);
+    setNavActive(false);
+    setNextTurn(null);
     try {
       const opts = await planRoutes(here, [target.lat, target.lng]);
       setRoutes(opts);
       setActiveRouteId(opts[0]?.id ?? null);
-      drawRoutes(opts, opts[0]?.id ?? null);
+      if (opts[0]) pickRoute(opts, opts[0].id);
     } catch {
       setError("Could not get a route");
     } finally {
@@ -784,25 +797,72 @@ export function MapApp() {
     }
   }
 
-  function drawRoutes(opts: RouteOption[], activeId: string | null) {
+  function pickRoute(opts: RouteOption[], id: string) {
+    setActiveRouteId(id);
+    setNavActive(true);
+    drawRoutes(opts, id, "nav");
+    setSearchOpen(false);
+    setLayersOpen(false);
+    setSettingsOpen(false);
+    setPlace(null);
+    const trk = handle.current?.track;
+    if (trk && handle.current?.map.hasLayer(trk)) handle.current.map.removeLayer(trk);
+    if (!isFramed()) {
+      setGpsMode("follow");
+      setHeadingMode("heading");
+      beginGps();
+    }
+    const chosen = opts.find((o) => o.id === id) ?? opts[0];
+    const here = lastGps.current;
+    if (chosen && here) {
+      setRemainKm(remainingKmAlong(chosen.coords, here[0], here[1]));
+      setNextTurn(nextRouteTurn(chosen.steps, chosen.coords, here[0], here[1]));
+    }
+  }
+
+  function drawRoutes(opts: RouteOption[], activeId: string | null, mode: "preview" | "nav" = "preview") {
     const ctx = handle.current;
     if (!ctx) return;
     ctx.routes.clearLayers();
     const chosen = opts.find((o) => o.id === activeId) ?? opts[0];
     routeCoords.current = chosen?.coords ?? null;
-    for (const opt of opts) {
+    const draw = mode === "nav" ? opts.filter((o) => o.id === chosen?.id) : opts;
+    for (const opt of draw) {
       const selected = opt.id === (activeId ?? chosen?.id);
       ctx.L.polyline(opt.coords, {
-        color: selected ? MAP_COLORS.primary : MAP_COLORS.routeMuted,
+        color: selected ? MAP_COLORS.route : MAP_COLORS.routeMuted,
         weight: selected ? 6 : 4,
-        opacity: selected ? 0.92 : 0.4,
+        opacity: selected ? 1 : 0.4,
+        lineCap: "round",
+        lineJoin: "round",
       }).addTo(ctx.routes);
     }
-    if (chosen) {
-      routeCoords.current = chosen.coords;
+    if (chosen && mode === "preview") {
       setGpsMode("off");
       const b = ctx.L.latLngBounds(chosen.coords);
       if (b.isValid()) ctx.map.fitBounds(b, { padding: [80, 48], maxZoom: 16 });
+    }
+  }
+
+  function clearRoute() {
+    setRoutes([]);
+    setActiveRouteId(null);
+    setNavActive(false);
+    setNextTurn(null);
+    routeCoords.current = null;
+    handle.current?.routes.clearLayers();
+    setRemainKm(null);
+    const ctx = handle.current;
+    if (ctx?.track && trackPts.current.length >= 2 && !ctx.map.hasLayer(ctx.track)) ctx.track.addTo(ctx.map);
+  }
+
+  function wipeTrack() {
+    trackPts.current = [];
+    clearTrack();
+    const ctx = handle.current;
+    if (ctx?.track) {
+      ctx.track.setLatLngs([]);
+      if (ctx.map.hasLayer(ctx.track)) ctx.map.removeLayer(ctx.track);
     }
   }
 
@@ -824,11 +884,7 @@ export function MapApp() {
       savePins(list);
     }
     setPlace(null);
-    setRoutes([]);
-    setActiveRouteId(null);
-    routeCoords.current = null;
-    handle.current?.routes.clearLayers();
-    setRemainKm(null);
+    clearRoute();
   }
 
   async function openRecent(item: Place) {
@@ -886,6 +942,11 @@ export function MapApp() {
       routes={routes}
       place={place}
       remainKm={remainKm}
+      navActive={navActive}
+      nextTurn={nextTurn}
+      pickRoute={(id: string) => pickRoute(routes, id)}
+      clearRoute={clearRoute}
+      wipeTrack={wipeTrack}
       routing={routing}
       searchOpen={searchOpen}
       query={query}

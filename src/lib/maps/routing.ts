@@ -1,6 +1,6 @@
 import { haversineKm } from "./geo";
 import { cachedJson } from "./app-cache";
-import type { Arterial, RouteOption } from "./types";
+import type { Arterial, RouteOption, RouteStep } from "./types";
 import { fetchWithBackoff } from "./backoff";
 
 const OSRM_ENDPOINTS = [
@@ -199,28 +199,108 @@ function encodeLatLng(pt: [number, number]): string {
 }
 
 function cacheKey(from: [number, number], to: [number, number]): string {
-  return `${from[0].toFixed(4)},${from[1].toFixed(4)}>${to[0].toFixed(4)},${to[1].toFixed(4)}`;
+  return `v2:${from[0].toFixed(4)},${from[1].toFixed(4)}>${to[0].toFixed(4)},${to[1].toFixed(4)}`;
 }
 
+type OsrmManeuver = { type?: string; modifier?: string; location?: [number, number] };
+type OsrmStep = { name?: string; distance?: number; maneuver?: OsrmManeuver };
 type OsrmRoute = {
   geometry: { coordinates: [number, number][] };
   distance: number;
   duration: number;
+  legs?: { steps?: OsrmStep[] }[];
 };
 
+function titleCase(s: string) {
+  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function osrmInstruction(step: OsrmStep): string {
+  const name = (step.name ?? "").trim();
+  const onto = name ? ` onto ${name}` : "";
+  const type = step.maneuver?.type ?? "";
+  const mod = (step.maneuver?.modifier ?? "").replace(/_/g, " ");
+  if (type === "arrive") return "Arrive";
+  if (type === "depart") return name ? `Head along ${name}` : "Start";
+  if (type === "roundabout" || type === "rotary") return name ? `Roundabout onto ${name}` : "Roundabout";
+  if (type === "exit roundabout" || type === "exit rotary" || type === "off ramp") return name ? `Exit onto ${name}` : "Exit";
+  if (type === "on ramp") return name ? `Take the ramp onto ${name}` : "Take the ramp";
+  if (type === "merge") return name ? `Merge onto ${name}` : "Merge";
+  if (type === "fork") return `${mod ? titleCase(mod) : "Keep"} at the fork${onto}`;
+  if (type === "continue" || type === "new name" || type === "notification") return name ? `Continue on ${name}` : "Continue";
+  if (mod === "uturn") return "U-turn";
+  if (mod === "straight") return name ? `Continue on ${name}` : "Continue";
+  if (mod === "slight right" || mod === "slight left") return `Slight ${mod.slice(7)}${onto}`;
+  if (mod === "sharp right" || mod === "sharp left") return `Sharp ${mod.slice(6).trim()}${onto}`;
+  if (mod === "right" || mod === "left") return `Turn ${mod}${onto}`;
+  if (type === "end of road") return `At the end, turn ${mod || "ahead"}${onto}`;
+  if (type === "turn") return `Turn${mod ? ` ${mod}` : ""}${onto}`;
+  return `${titleCase(type || "Continue")}${onto}`;
+}
+
+function stepsFromOsrm(route: OsrmRoute): RouteStep[] {
+  const raw = (route.legs ?? []).flatMap((leg) => leg.steps ?? []);
+  const steps: RouteStep[] = [];
+  for (const step of raw) {
+    const loc = step.maneuver?.location;
+    if (!loc) continue;
+    const type = step.maneuver?.type ?? "";
+    if (type === "depart" || type === "notification") continue;
+    const instruction = osrmInstruction(step);
+    if (!instruction) continue;
+    const prev = steps[steps.length - 1];
+    if (prev && prev.instruction === instruction) continue;
+    steps.push({ instruction, lat: loc[1], lng: loc[0], name: (step.name ?? "").trim() });
+  }
+  return steps;
+}
+
+function stepsFromCoords(coords: [number, number][]): RouteStep[] {
+  const steps: RouteStep[] = [];
+  const brg = (a: [number, number], b: [number, number]) => {
+    const dLng = ((b[1] - a[1]) * Math.PI) / 180;
+    const lat1 = (a[0] * Math.PI) / 180;
+    const lat2 = (b[0] * Math.PI) / 180;
+    const y = Math.sin(dLng) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+  };
+  const delta = (a: number, b: number) => ((b - a + 540) % 360) - 180;
+  for (let i = 1; i < coords.length - 1; i++) {
+    const a = coords[i - 1]!;
+    const b = coords[i]!;
+    const c = coords[i + 1]!;
+    if (haversineKm(a, b) < 0.04 || haversineKm(b, c) < 0.04) continue;
+    const turn = delta(brg(a, b), brg(b, c));
+    const abs = Math.abs(turn);
+    if (abs < 38) continue;
+    const dir = turn > 0 ? "right" : "left";
+    const instruction = abs > 120 ? `Sharp ${dir}` : abs < 55 ? `Slight ${dir}` : `Turn ${dir}`;
+    const prev = steps[steps.length - 1];
+    if (prev && haversineKm([prev.lat, prev.lng], b) < 0.06) continue;
+    steps.push({ instruction, lat: b[0], lng: b[1], name: "" });
+  }
+  const last = coords[coords.length - 1];
+  if (last) steps.push({ instruction: "Arrive", lat: last[0], lng: last[1], name: "" });
+  return steps;
+}
+
 function fromOsrm(route: OsrmRoute, id: string, label: string): RouteOption {
+  const coords = route.geometry.coordinates.map(([lng, lat]) => [lat, lng] as [number, number]);
+  const steps = stepsFromOsrm(route);
   return {
     id,
     label,
-    coords: route.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
+    coords,
     distanceKm: route.distance / 1000,
     durationMin: route.duration / 60,
+    steps: steps.length ? steps : stepsFromCoords(coords),
   };
 }
 
 async function fetchOsrm(path: string, alts = true): Promise<OsrmRoute[]> {
   let last: Error | null = null;
-  const qs = `alternatives=${alts}&overview=${alts ? "full" : "simplified"}&geometries=geojson&steps=false`;
+  const qs = `alternatives=${alts}&overview=full&geometries=geojson&steps=true`;
   for (const base of OSRM_ENDPOINTS) {
     try {
       const res = await fetchWithBackoff(`${base}/${path}?${qs}`, {}, { retries: 2, baseMs: 400, maxMs: 2500, timeoutMs: 8000 });
@@ -302,6 +382,7 @@ async function fetchValhalla(from: [number, number], to: [number, number]): Prom
         coords,
         distanceKm: Number(trip.summary?.length ?? 0),
         durationMin: Number(trip.summary?.time ?? 0) / 60,
+        steps: stepsFromCoords(coords),
       });
     });
     return out;

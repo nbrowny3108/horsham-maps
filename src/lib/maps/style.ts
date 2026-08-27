@@ -111,9 +111,8 @@ export function isNextProgramme(program: string): boolean {
   return program.includes("27-28");
 }
 
-export function gradeColor(program: string, base: BaseLayer): string {
-  if (base === "hybrid") return isNextProgramme(program) ? MAP_COLORS.gradeHybridNext : MAP_COLORS.gradeHybrid;
-  return isNextProgramme(program) ? MAP_COLORS.gradeNext : MAP_COLORS.grade;
+export function gradeColor(_program: string, _base: BaseLayer): string {
+  return MAP_COLORS.gradeHybrid;
 }
 
 export function gradeStyle(base: BaseLayer) {
@@ -121,7 +120,7 @@ export function gradeStyle(base: BaseLayer) {
     const prog = gradeProgramOf(feat);
     return {
       color: gradeColor(prog, base),
-      weight: base === "hybrid" ? 4.2 : 5,
+      weight: base === "hybrid" ? 5 : 5.5,
       opacity: 1,
       lineCap: "round" as const,
       lineJoin: "round" as const,
@@ -144,7 +143,7 @@ export function roadLineStyle(base: BaseLayer) {
       const name = String(props.name ?? "");
       const prog = name ? hybridGrade.names.get(roadKey(name)) : undefined;
       if (hybridGrade.show && prog) {
-        return { color: gradeColor(prog, "hybrid"), weight: 3.6, opacity: 1, lineCap: "round" as const, lineJoin: "round" as const };
+        return { opacity: 0, weight: 0 };
       }
       if (surf === 2) return { color: MAP_COLORS.roadEarth, weight: 1.4, opacity: 1, lineCap: "round" as const, lineJoin: "round" as const };
       if (surf === 1) return { color: MAP_COLORS.grade, weight: 1.7, opacity: 1, lineCap: "round" as const, lineJoin: "round" as const };

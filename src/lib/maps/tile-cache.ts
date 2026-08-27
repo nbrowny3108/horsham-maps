@@ -6,7 +6,7 @@ const inflight = new Set<string>();
 let queue: string[] = [];
 let workers = 0;
 let paused = false;
-const MAX_WORKERS = 3;
+const MAX_WORKERS = 2;
 const QUEUE_MAX = 80;
 
 function tileXY(lat: number, lng: number, z: number) {
@@ -110,9 +110,8 @@ export function prefetchAround(map: import("leaflet").Map, kind: "street" | "sat
   const south = b.getSouth();
   const east = b.getEast();
   const north = b.getNorth();
-  const urls = tileUrlsInBounds(kind, z, west, south, east, north).slice(0, 48);
-  if (z > 10) urls.push(...tileUrlsInBounds(kind, z - 1, west, south, east, north).slice(0, 20));
-  if (z > 12) urls.push(...tileUrlsInBounds(kind, Math.max(12, z - 2), west, south, east, north).slice(0, 12));
+  const urls = tileUrlsInBounds(kind, z, west, south, east, north).slice(0, 18);
+  if (z > 10) urls.push(...tileUrlsInBounds(kind, z - 1, west, south, east, north).slice(0, 8));
   pushUnique(urls, false);
 }
 
@@ -133,6 +132,7 @@ export function prefetchDrive(opts: {
   route?: [number, number][] | null;
 }): void {
   if (paused || document.hidden) return;
+  if (opts.speedKmh < 8) return;
   const lat = opts.lat;
   const lng = opts.lng;
   const kind = opts.zoom >= 17 ? "best" : opts.kind;
@@ -238,8 +238,9 @@ export function resumePrefetch(): void {
 
 export const TILE_LAYER_OPTS = {
   maxZoom: 21,
-  keepBuffer: 20,
-  updateWhenZooming: false,
+  maxNativeZoom: 19,
+  keepBuffer: 4,
+  updateWhenZooming: true,
   updateWhenIdle: false,
   detectRetina: false,
   className: "map-tiles",

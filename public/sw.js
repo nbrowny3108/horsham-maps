@@ -1,4 +1,4 @@
-const APP = "horsham-app-v16";
+const APP = "horsham-app-v21";
 const TILES = "horsham-tiles-v4";
 const DATA = "horsham-data-v1";
 const KEEP = new Set([APP, TILES, DATA]);
@@ -39,23 +39,6 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
       await precacheShell();
-      const data = await caches.open(DATA);
-      try {
-        const res = await fetch("/data/cache-manifest.json");
-        const list = res.ok ? await res.json() : [];
-        await Promise.all(
-          (Array.isArray(list) ? list : []).slice(0, 24).map(async (url) => {
-            try {
-              const file = await fetch(url);
-              if (file.ok) await data.put(url, file.clone());
-            } catch {
-              /* skip */
-            }
-          }),
-        );
-      } catch {
-        /* ok */
-      }
       await self.skipWaiting();
     })(),
   );
@@ -78,13 +61,8 @@ function isData(url) {
   return url.pathname.startsWith("/data/") || url.pathname === "/api/grading";
 }
 
-function isShell(url) {
-  return (
-    url.pathname.startsWith("/assets/") ||
-    url.pathname === "/manifest.webmanifest" ||
-    url.pathname === "/favicon.svg" ||
-    url.pathname.endsWith(".svg")
-  );
+function isAsset(url) {
+  return url.pathname.startsWith("/assets/") || url.pathname === "/manifest.webmanifest" || url.pathname === "/favicon.svg" || url.pathname.endsWith(".svg");
 }
 
 function keyOf(url) {
@@ -97,9 +75,17 @@ async function tileOnly(request) {
   const cache = await caches.open(TILES);
   const hit = await cache.match(key);
   if (hit) return hit;
-  const res = await fetch(key);
-  if (res && res.ok) cache.put(key, res.clone()).catch(() => {});
-  return res;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const res = await fetch(request, { signal: ctrl.signal });
+    if (res && res.ok) cache.put(key, res.clone()).catch(() => {});
+    return res;
+  } catch {
+    return new Response("", { status: 504 });
+  } finally {
+    clearTimeout(t);
+  }
 }
 
 async function cacheFirst(cacheName, request) {
@@ -107,16 +93,23 @@ async function cacheFirst(cacheName, request) {
   const url = new URL(request.url);
   const key = keyOf(url);
   const hit = (await cache.match(key)) || (await cache.match(request));
-  if (hit) return hit;
-  try {
-    const res = await fetch(request);
-    if (res && res.ok) cache.put(key, res.clone()).catch(() => {});
-    return res;
-  } catch (err) {
-    const again = await cache.match(key);
-    if (again) return again;
-    throw err;
+  if (hit) {
+    fetch(request)
+      .then((res) => {
+        if (res && res.ok) cache.put(key, res.clone()).catch(() => {});
+      })
+      .catch(() => {});
+    return hit;
   }
+  const res = await fetch(request);
+  if (res && res.ok) cache.put(key, res.clone()).catch(() => {});
+  return res;
+}
+
+function networkWithTimeout(request, ms) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  return fetch(request, { signal: ctrl.signal }).finally(() => clearTimeout(t));
 }
 
 self.addEventListener("fetch", (event) => {
@@ -133,19 +126,22 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(cacheFirst(DATA, req));
     return;
   }
-  if (isShell(url)) {
+  if (isAsset(url)) {
     event.respondWith(cacheFirst(APP, req));
     return;
   }
   if (req.mode === "navigate") {
     event.respondWith(
-      fetch(req)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(APP).then((c) => c.put("/", copy)).catch(() => {});
+      (async () => {
+        const cache = await caches.open(APP);
+        try {
+          const res = await networkWithTimeout(req, 1800);
+          if (res && res.ok) cache.put("/", res.clone()).catch(() => {});
           return res;
-        })
-        .catch(() => caches.match("/") || caches.match(req)),
+        } catch {
+          return (await cache.match("/")) || (await cache.match(req)) || fetch(req);
+        }
+      })(),
     );
   }
 });

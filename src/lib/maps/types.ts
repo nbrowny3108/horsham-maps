@@ -7,12 +7,20 @@ export type Place = {
   source: "pin" | "search";
 };
 
+export type RouteStep = {
+  instruction: string;
+  lat: number;
+  lng: number;
+  name: string;
+};
+
 export type RouteOption = {
   id: string;
   label: string;
   coords: [number, number][];
   distanceKm: number;
   durationMin: number;
+  steps?: RouteStep[];
 };
 
 export type BaseLayer = "map" | "satellite" | "hybrid";
@@ -41,11 +49,13 @@ export const VIEWBOX = "141.55,-36.38,142.65,-37.28";
 export const MAP_COLORS = {
   primary: "#1a73e8",
   shire: "#0b57d0",
-  grade: "#c45c12",
-  gradeNext: "#1d4ed8",
-  gradeHybrid: "#f5d000",
-  gradeHybridNext: "#60a5fa",
+  grade: "#ff3eb5",
+  gradeNext: "#ff3eb5",
+  gradeHybrid: "#ff3eb5",
+  gradeHybridNext: "#ff3eb5",
   routeMuted: "#5f6368",
+  route: "#ffe14a",
+  track: "#f8fafc",
   gps: "#1a73e8",
   road: "#8d8880",
   roadHybrid: "#e11d2e",

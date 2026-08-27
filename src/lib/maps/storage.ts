@@ -14,6 +14,8 @@ const COMPASS_OK_KEY = "horsham-maps-compass-ok";
 const SENSOR_SESSION_KEY = "horsham-maps-sensor-session";
 const ALWAYS_GPS_KEY = "horsham-maps-always-gps";
 const ALWAYS_MOTION_KEY = "horsham-maps-always-motion";
+const VIEW_KEY = "horsham-maps-last-view";
+const TRACK_KEY = "horsham-maps-last-track";
 
 export function loadBaseLayer(): BaseLayer {
   if (typeof window === "undefined") return "hybrid";
@@ -328,4 +330,65 @@ export function saveAlwaysMotion(on: boolean): void {
   } catch {
     /* ignore */
   }
+}
+
+export type LastView = { lat: number; lng: number; zoom: number };
+
+export function loadLastView(): LastView | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(VIEW_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as Partial<LastView>;
+    if (typeof v.lat !== "number" || typeof v.lng !== "number" || typeof v.zoom !== "number") return null;
+    if (!Number.isFinite(v.lat) || !Number.isFinite(v.lng) || !Number.isFinite(v.zoom)) return null;
+    return { lat: v.lat, lng: v.lng, zoom: v.zoom };
+  } catch {
+    return null;
+  }
+}
+
+export function saveLastView(lat: number, lng: number, zoom: number): void {
+  try {
+    window.localStorage.setItem(VIEW_KEY, JSON.stringify({ lat, lng, zoom }));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function loadTrack(): [number, number][] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(TRACK_KEY);
+    if (!raw) return [];
+    const pts = JSON.parse(raw) as [number, number][];
+    if (!Array.isArray(pts)) return [];
+    return pts.filter((p) => Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  } catch {
+    return [];
+  }
+}
+
+export function saveTrack(pts: [number, number][]): void {
+  try {
+    window.localStorage.setItem(TRACK_KEY, JSON.stringify(pts));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function appendTrackPoint(pts: [number, number][], lat: number, lng: number): [number, number][] {
+  const last = pts[pts.length - 1];
+  if (last) {
+    const m = Math.hypot((lat - last[0]) * 111_320, (lng - last[1]) * 89_200);
+    if (m < 12) return pts;
+  }
+  const next: [number, number][] = pts.length >= 4000 ? pts.slice(-3200) : pts.slice();
+  next.push([lat, lng]);
+  saveTrack(next);
+  return next;
+}
+
+export function clearTrack(): void {
+  saveTrack([]);
 }

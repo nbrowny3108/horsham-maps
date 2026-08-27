@@ -90,8 +90,12 @@
   overflow: hidden;
 }
 
+.leaflet-container {
+  background: #8a9a7a;
+}
+
 .leaflet-tile-pane {
-  background: #3a4636;
+  background: #8a9a7a;
 }
 
 .leaflet-tile {
@@ -279,9 +283,9 @@ footer a {
   font-size: 18px;
 }
 
-.road-lab-turn span {
-  font-size: 16px;
-  font-weight: 750;
+.road-lab-now span {
+  font-size: 18px;
+  font-weight: 800;
 }
 
 .road-lab-photo span {

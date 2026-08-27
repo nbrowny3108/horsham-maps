@@ -30,12 +30,12 @@ function remember(key: string, body: ArrayBuffer, type: string) {
 
 type Grab = { ok: boolean; body: ArrayBuffer; type: string };
 
-async function grab(url: string): Promise<Grab> {
+async function grab(url: string, timeoutMs = 2500): Promise<Grab> {
   try {
     const res = await fetchWithBackoff(
       url,
       { headers: { Accept: "image/*" } },
-      { retries: 1, baseMs: 200, maxMs: 800, timeoutMs: 6000 },
+      { retries: 0, baseMs: 150, maxMs: 400, timeoutMs },
     );
     if (!res.ok) return { ok: false, body: new ArrayBuffer(0), type: "" };
     const type = res.headers.get("content-type") || "image/jpeg";
@@ -53,37 +53,37 @@ function useful(tile: Grab, min = 6000): boolean {
 
 let vicStreak = 0;
 
-/** One imagery source per tile. Driving zoom (z>16) is Vicmap only. */
+/** One imagery source per tile. Vicmap first at driving zoom, Esri if Vicmap is slow. */
 async function pickBest(z: string, x: string, y: string): Promise<Grab> {
   const zoom = Number(z);
   if (zoom > 16) {
-    const vic = await grab(UPSTREAM.vic(z, x, y));
+    const vic = await grab(UPSTREAM.vic(z, x, y), 1600);
     if (useful(vic, 4000)) {
       vicStreak += 1;
       return vic;
     }
-    const png = await grab(UPSTREAM.vicPng(z, x, y));
+    const esri = await grab(UPSTREAM.sat(z, x, y), 2800);
+    if (useful(esri, 2500)) {
+      vicStreak = 0;
+      return esri;
+    }
+    const png = await grab(UPSTREAM.vicPng(z, x, y), 1600);
     if (useful(png, 4000)) {
       vicStreak += 1;
       return png;
     }
-    return vic.ok ? vic : png;
+    return esri.ok ? esri : useful(vic, 32) ? vic : png;
   }
 
-  const esri = await grab(UPSTREAM.sat(z, x, y));
+  const esri = await grab(UPSTREAM.sat(z, x, y), 2800);
   if (useful(esri)) {
     vicStreak = 0;
     return esri;
   }
-  const vic = await grab(UPSTREAM.vic(z, x, y));
+  const vic = await grab(UPSTREAM.vic(z, x, y), 1800);
   if (useful(vic, 4000)) {
     vicStreak += 1;
     return vic;
-  }
-  const png = await grab(UPSTREAM.vicPng(z, x, y));
-  if (useful(png, 4000)) {
-    vicStreak += 1;
-    return png;
   }
   return esri;
 }
