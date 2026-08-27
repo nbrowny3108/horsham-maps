@@ -52,7 +52,7 @@ try {
     if (/Location first|Compass next|Sensors blocked/i.test(title)) fail(`Gate still showing after saved grants: ${title}`);
   }
 
-  for (const name of ["Pin", "GPS", "North", "Heading", "Grading", "Search", "Layers", "Settings"]) {
+  for (const name of ["Pin", "Heading", "Grading", "Search", "Layers", "Settings"]) {
     if ((await page.getByRole("button", { name: new RegExp(`^${name}$|^${name} `, "i") }).count()) === 0) {
       const any = await page.getByRole("button", { name: new RegExp(name, "i") }).count();
       if (!any) fail(`Missing toolbar button: ${name}`);
@@ -67,19 +67,11 @@ try {
   notes.push(`Start zoom ${startPct}`);
   if (startPct !== "60%" && startPct !== "50%" && startPct !== "70%") fail(`Expected start zoom ~60%, got ${startPct}`);
 
-  if ((await page.getByRole("button", { name: "GPS follow" }).evaluate((el) => el.className.includes("bg-primary"))) === false) {
-    fail("GPS follow should start on");
-  }
+  if ((await page.getByRole("button", { name: "GPS follow" }).count()) > 0) fail("GPS follow should be gone from toolbar");
+  if ((await page.getByRole("button", { name: "North up" }).count()) > 0) fail("North up should be gone from toolbar");
   if ((await page.getByRole("button", { name: "Heading up" }).evaluate((el) => el.className.includes("bg-primary"))) === false) {
     fail("Heading up should start on");
   }
-
-  const gpsBtn = page.getByRole("button", { name: "GPS follow" });
-  await gpsBtn.click();
-  await page.waitForTimeout(250);
-  if (await gpsBtn.evaluate((el) => el.className.includes("bg-primary"))) fail("GPS follow tap did not turn off");
-  await gpsBtn.click();
-  await page.waitForTimeout(250);
 
   await page.getByRole("button", { name: "Layers" }).click();
   await page.waitForTimeout(400);

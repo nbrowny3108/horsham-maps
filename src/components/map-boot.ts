@@ -1,4 +1,4 @@
-import type { Circle, GeoJSON, LayerGroup, Map as LeafletMap, Marker, Polyline, TileLayer } from "leaflet";
+import type { Circle, GeoJSON, LayerGroup, Map as LeafletMap, Marker, TileLayer } from "leaflet";
 import type { MutableRefObject } from "react";
 import { lineLengthKm, lineMostlyInRing } from "@/lib/maps/geo";
 import { loadLeaflet, mapCanRotate } from "@/lib/maps/leaflet";
@@ -17,7 +17,7 @@ import { prefetchAround, TILE_LAYER_OPTS } from "@/lib/maps/tile-cache";
 import { reverseGeocode } from "@/lib/maps/places";
 import { loadArterials } from "@/lib/maps/routing";
 import { allMapData, loadGradingJson, loadJunctionsJson, loadLabelsJson, loadPlacesJson, mapAssets } from "@/lib/maps/preload";
-import { loadLastView, loadTrack, saveLastView } from "@/lib/maps/storage";
+import { loadLastView, saveLastView } from "@/lib/maps/storage";
 import { snapCurrentRoad } from "@/lib/maps/snap";
 import { appendRoadSnaps, headingPadKeys, loadRoadChunk, ROAD_CHUNK_ZOOM, roadChunkIndex, visibleChunkKeys } from "@/lib/maps/road-tiles";
 import {
@@ -51,7 +51,6 @@ export type MapHandle = {
   pin?: Marker;
   gps?: Marker;
   accuracy?: Circle;
-  track?: Polyline;
   canRotate: boolean;
   paintLabels?: () => void;
 };
@@ -233,17 +232,6 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
       ring: null,
       canRotate: mapCanRotate(map),
     };
-    const savedTrack = loadTrack();
-    ctx.track = L.polyline(savedTrack, {
-      color: MAP_COLORS.track,
-      weight: 4,
-      opacity: 0.9,
-      lineCap: "round",
-      lineJoin: "round",
-      interactive: false,
-    });
-    if (savedTrack.length >= 2) ctx.track.addTo(map);
-
     handle.current = ctx;
     setReady(true);
     void loadArterials();

@@ -39,9 +39,6 @@ import {
   loadRecents,
   loadSensorsOnboarded,
   loadSpeedZoom,
-  loadTrack,
-  appendTrackPoint,
-  clearTrack,
   pushRecent,
   saveAlwaysGps,
   saveAlwaysMotion,
@@ -90,7 +87,6 @@ export function MapApp() {
   const setZoomPctRef = useRef<(n: number) => void>(() => {});
   const setZoomModeRef = useRef<(auto: boolean) => void>(() => {});
   const remainAtRef = useRef(0);
-  const trackPts = useRef<[number, number][]>(loadTrack());
   const drivePrefetchAt = useRef(0);
   const paintFixRef = useRef<(fix: GpsFix) => void>(() => {});
   const gpsIconKeyRef = useRef("");
@@ -312,14 +308,6 @@ export function MapApp() {
     speedRef.current = fix.speed;
     headingRef.current = drive.current.heading || (fix.heading ?? headingRef.current);
     drive.current.ingest(fix);
-    trackPts.current = appendTrackPoint(trackPts.current, here[0], here[1]);
-    const ctxTrack = handle.current;
-    if (ctxTrack?.track) {
-      ctxTrack.track.setLatLngs(trackPts.current);
-      const showTrack = trackPts.current.length >= 2 && !navRef.current;
-      if (showTrack && !ctxTrack.map.hasLayer(ctxTrack.track)) ctxTrack.track.addTo(ctxTrack.map);
-      if (!showTrack && ctxTrack.map.hasLayer(ctxTrack.track)) ctxTrack.map.removeLayer(ctxTrack.track);
-    }
     const ctxNow = handle.current;
     if (ctxNow) {
       const t = performance.now();
@@ -743,11 +731,6 @@ export function MapApp() {
   }
 
   async function enableHeadingUp() {
-    if (headingMode === "heading" && gpsMode === "follow" && compassLive && !needStart) {
-      setHeadingMode("north");
-      applyMapBearing(0);
-      return;
-    }
     await startDriving();
   }
 
@@ -824,8 +807,6 @@ export function MapApp() {
     setLayersOpen(false);
     setSettingsOpen(false);
     setPlace(null);
-    const trk = handle.current?.track;
-    if (trk && handle.current?.map.hasLayer(trk)) handle.current.map.removeLayer(trk);
     if (!isFramed()) {
       setGpsMode("follow");
       setHeadingMode("heading");
@@ -871,18 +852,6 @@ export function MapApp() {
     routeCoords.current = null;
     handle.current?.routes.clearLayers();
     setRemainKm(null);
-    const ctx = handle.current;
-    if (ctx?.track && trackPts.current.length >= 2 && !ctx.map.hasLayer(ctx.track)) ctx.track.addTo(ctx.map);
-  }
-
-  function wipeTrack() {
-    trackPts.current = [];
-    clearTrack();
-    const ctx = handle.current;
-    if (ctx?.track) {
-      ctx.track.setLatLngs([]);
-      if (ctx.map.hasLayer(ctx.track)) ctx.map.removeLayer(ctx.track);
-    }
   }
 
   function savePlace() {
@@ -965,7 +934,6 @@ export function MapApp() {
       nextTurn={nextTurn}
       pickRoute={(id: string) => pickRoute(routes, id)}
       clearRoute={clearRoute}
-      wipeTrack={wipeTrack}
       routing={routing}
       searchOpen={searchOpen}
       query={query}

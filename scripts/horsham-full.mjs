@@ -53,8 +53,6 @@ try {
 
   for (const name of [
     "Drop pin",
-    "GPS follow",
-    "North up",
     "Heading up",
     "HRCC gravel grading",
     "Search address",
@@ -66,6 +64,10 @@ try {
     const n = await page.getByRole("button", { name }).count();
     if (n) pass(`Button ${name}`);
     else fail(`Button ${name}`, "missing");
+  }
+  for (const gone of ["GPS follow", "North up"]) {
+    if ((await page.getByRole("button", { name: gone }).count()) === 0) pass(`Removed ${gone}`);
+    else fail(`Removed ${gone}`, "still in toolbar");
   }
 
   if ((await page.getByText("km/h").count()) > 0) pass("Speed HUD");
@@ -79,32 +81,10 @@ try {
   if (startPct === "80%") pass("Start zoom 80%");
   else fail("Start zoom 80%", startPct);
 
-  if (await active("GPS follow")) pass("GPS follow starts on");
-  else fail("GPS follow starts on");
   if (await active("Heading up")) pass("Heading up starts on");
   else fail("Heading up starts on");
   if (await active("HRCC gravel grading")) pass("Grading starts on");
   else fail("Grading starts on");
-
-  await tap("GPS follow");
-  await page.waitForTimeout(200);
-  if (!(await active("GPS follow"))) pass("GPS follow toggle off");
-  else fail("GPS follow toggle off");
-  await tap("GPS follow");
-  await page.waitForTimeout(200);
-  if (await active("GPS follow")) pass("GPS follow toggle on");
-  else fail("GPS follow toggle on");
-
-  await tap("North up");
-  await page.waitForTimeout(250);
-  if (await active("North up")) pass("North up");
-  else fail("North up");
-  if (!(await active("Heading up"))) pass("Heading off when North on");
-  else fail("Heading off when North on");
-  await tap("Heading up");
-  await page.waitForTimeout(250);
-  if (await active("Heading up")) pass("Heading up restore");
-  else fail("Heading up restore");
 
   await tap("HRCC gravel grading");
   await page.waitForTimeout(250);

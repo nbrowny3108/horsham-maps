@@ -17,7 +17,6 @@ const SENSOR_SESSION_KEY = "horsham-maps-sensor-session";
 const ALWAYS_GPS_KEY = "horsham-maps-always-gps";
 const ALWAYS_MOTION_KEY = "horsham-maps-always-motion";
 const VIEW_KEY = "horsham-maps-last-view";
-const TRACK_KEY = "horsham-maps-last-track";
 
 export function loadBaseLayer(): BaseLayer {
   if (typeof window === "undefined") return "hybrid";
@@ -375,41 +374,4 @@ export function saveLastView(lat: number, lng: number, zoom: number): void {
   } catch {
     /* ignore */
   }
-}
-
-export function loadTrack(): [number, number][] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(TRACK_KEY);
-    if (!raw) return [];
-    const pts = JSON.parse(raw) as [number, number][];
-    if (!Array.isArray(pts)) return [];
-    return pts.filter((p) => Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1]));
-  } catch {
-    return [];
-  }
-}
-
-export function saveTrack(pts: [number, number][]): void {
-  try {
-    window.localStorage.setItem(TRACK_KEY, JSON.stringify(pts));
-  } catch {
-    /* ignore */
-  }
-}
-
-export function appendTrackPoint(pts: [number, number][], lat: number, lng: number): [number, number][] {
-  const last = pts[pts.length - 1];
-  if (last) {
-    const m = Math.hypot((lat - last[0]) * 111_320, (lng - last[1]) * 89_200);
-    if (m < 12) return pts;
-  }
-  const next: [number, number][] = pts.length >= 4000 ? pts.slice(-3200) : pts.slice();
-  next.push([lat, lng]);
-  saveTrack(next);
-  return next;
-}
-
-export function clearTrack(): void {
-  saveTrack([]);
 }

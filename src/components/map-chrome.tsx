@@ -1,13 +1,11 @@
 import type { ReactNode } from "react";
 import {
   Clock,
-  Compass,
   Download,
   Folder,
   HardDrive,
   Image,
   Layers,
-  LocateFixed,
   MapPin,
   Navigation,
   Navigation2,
@@ -119,7 +117,6 @@ mapEl,
     nextTurn,
     pickRoute,
     clearRoute,
-    wipeTrack,
     routing,
     searchOpen,
     query,
@@ -554,9 +551,6 @@ mapEl,
                 </button>
               </>
             ) : null}
-            <button type="button" onClick={() => wipeTrack()} className="mb-3 h-11 w-full rounded-sm bg-bg text-sm font-medium">
-              Clear last track
-            </button>
             <p className="mb-1 text-xs font-medium uppercase tracking-wide text-subtle">Map zoom</p>
             <div className="mb-1 grid grid-cols-2 gap-1.5">
               <button
@@ -758,23 +752,9 @@ mapEl,
             </div>
           </div>
         ) : null}
-        <nav className="grid h-[90px] grid-cols-8 gap-0 px-1" aria-label="Map tools">
+        <nav className="grid h-[90px] grid-cols-6 gap-0 px-1" aria-label="Map tools">
           <ToolButton label="Drop pin" shortLabel="Pin" active={pinAim} onClick={() => void dropAtCenter()}>
             <MapPin className="size-4" />
-          </ToolButton>
-          <ToolButton label="GPS follow" shortLabel="GPS" active={gpsMode === "follow"} onClick={toggleFollow}>
-            <LocateFixed className="size-4" />
-          </ToolButton>
-          <ToolButton
-            label="North up"
-            shortLabel="North"
-            active={headingMode === "north"}
-            onClick={() => {
-              setHeadingMode("north");
-              applyMapBearing(0);
-            }}
-          >
-            <Compass className="size-4" />
           </ToolButton>
           <ToolButton
             label="Heading up"

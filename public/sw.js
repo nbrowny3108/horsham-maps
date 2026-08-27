@@ -1,4 +1,4 @@
-const APP = "horsham-app-v24";
+const APP = "horsham-app-v25";
 const TILES = "horsham-tiles-v5";
 const DATA = "horsham-data-v1";
 const KEEP = new Set([APP, TILES, DATA]);

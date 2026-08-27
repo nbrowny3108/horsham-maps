@@ -55,7 +55,6 @@ export const MAP_COLORS = {
   gradeHybridNext: "#ff3eb5",
   routeMuted: "#5f6368",
   route: "#ffe14a",
-  track: "#f8fafc",
   gps: "#1a73e8",
   road: "#8d8880",
   roadHybrid: "#e11d2e",
