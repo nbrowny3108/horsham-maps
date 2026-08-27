@@ -1,4 +1,5 @@
 import type { BaseLayer, Place } from "./types";
+import { DEFAULT_SPEED_ZOOM, normalizeSpeedZoom, type SpeedZoomSettings } from "./style";
 
 const BASE_KEY = "horsham-maps-base";
 const RECENT_KEY = "horsham-maps-recent";
@@ -8,6 +9,7 @@ const GRADING_KEY = "horsham-maps-grading-v2";
 const MAPDATA_KEY = "horsham-maps-mapdata";
 const PHOTO_KEY = "horsham-maps-photo";
 const AUTOZOOM_KEY = "horsham-maps-auto-zoom";
+const SPEED_ZOOM_KEY = "horsham-maps-speed-zoom-v1";
 const SENSORS_KEY = "horsham-maps-sensors-on";
 const GEO_OK_KEY = "horsham-maps-geo-ok";
 const COMPASS_OK_KEY = "horsham-maps-compass-ok";
@@ -134,6 +136,25 @@ export function loadAutoZoom(): boolean {
 export function saveAutoZoom(on: boolean): void {
   try {
     window.localStorage.setItem(AUTOZOOM_KEY, on ? "on" : "off");
+  } catch {
+    /* ignore */
+  }
+}
+
+export function loadSpeedZoom(): SpeedZoomSettings {
+  if (typeof window === "undefined") return DEFAULT_SPEED_ZOOM;
+  try {
+    const raw = window.localStorage.getItem(SPEED_ZOOM_KEY);
+    if (!raw) return DEFAULT_SPEED_ZOOM;
+    return normalizeSpeedZoom(JSON.parse(raw) as Partial<SpeedZoomSettings>);
+  } catch {
+    return DEFAULT_SPEED_ZOOM;
+  }
+}
+
+export function saveSpeedZoom(next: SpeedZoomSettings): void {
+  try {
+    window.localStorage.setItem(SPEED_ZOOM_KEY, JSON.stringify(normalizeSpeedZoom(next)));
   } catch {
     /* ignore */
   }

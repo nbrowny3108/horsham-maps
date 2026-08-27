@@ -25,6 +25,8 @@ import {
   ZOOM_STEP_PCT,
   shireLatLngBounds,
   updateShireFitZoom,
+  speedBandLabel,
+  type SpeedZoomSettings,
 } from "@/lib/maps/style";
 import { formatLibrarySize, exportLibraryFile, clearMapPhotos, type LibraryFile } from "@/lib/maps/map-library";
 import { placeSubtitle, placeTitle, RateLimitError, searchPlaces } from "@/lib/maps/places";
@@ -146,6 +148,8 @@ mapEl,
     savingOffline,
     offlineAt,
     autoZoom,
+    speedZoom,
+    applySpeedZoom,
     geoPerm,
     alwaysGps,
     motionPerm,
@@ -572,9 +576,64 @@ mapEl,
             </div>
             <p className="mb-3 text-xs text-muted">
               {autoZoom
-                ? "90% at slow (≤35 km/h) · 80% mid · 60% at ≥78 km/h. +/− switches to manual."
+                ? "Holds a new band for 1.5 s, then steps zoom. Pinch or +/− switches to manual."
                 : `Stays at ${zoomPct}% until you tap Auto.`}
             </p>
+            <div className="mb-3 space-y-1.5">
+              {(["Stopped / trim", "Grading / site", "Local roads", "Highway / travel"] as const).map((note, i) => (
+                <div key={note} className="flex items-center gap-2 rounded-sm bg-bg px-2 py-1.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-semibold leading-tight">{speedBandLabel(i, speedZoom as SpeedZoomSettings)}</p>
+                    <p className="text-[10px] text-muted">{note}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="h-9 w-9 rounded-sm bg-elevated text-lg font-semibold"
+                    onClick={() => {
+                      const pcts = [...(speedZoom as SpeedZoomSettings).pcts] as SpeedZoomSettings["pcts"];
+                      pcts[i] = Math.max(0, pcts[i] - ZOOM_STEP_PCT);
+                      applySpeedZoom({ ...(speedZoom as SpeedZoomSettings), pcts });
+                    }}
+                  >
+                    −
+                  </button>
+                  <p className="w-10 text-center text-sm font-semibold tabular-nums">{(speedZoom as SpeedZoomSettings).pcts[i]}%</p>
+                  <button
+                    type="button"
+                    className="h-9 w-9 rounded-sm bg-elevated text-lg font-semibold"
+                    onClick={() => {
+                      const pcts = [...(speedZoom as SpeedZoomSettings).pcts] as SpeedZoomSettings["pcts"];
+                      pcts[i] = Math.min(100, pcts[i] + ZOOM_STEP_PCT);
+                      applySpeedZoom({ ...(speedZoom as SpeedZoomSettings), pcts });
+                    }}
+                  >
+                    +
+                  </button>
+                </div>
+              ))}
+              <p className="text-[10px] text-muted">Band edges (km/h). Faster = more zoomed out.</p>
+              <div className="grid grid-cols-3 gap-1.5">
+                {(speedZoom as SpeedZoomSettings).cuts.map((cut, i) => (
+                  <label key={i} className="block">
+                    <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-subtle">{i === 0 ? "Slow" : i === 1 ? "Mid" : "Fast"}</span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={120}
+                      step={1}
+                      value={cut}
+                      onChange={(e) => {
+                        const cuts = [...(speedZoom as SpeedZoomSettings).cuts] as SpeedZoomSettings["cuts"];
+                        cuts[i] = Number(e.target.value);
+                        applySpeedZoom({ ...(speedZoom as SpeedZoomSettings), cuts });
+                      }}
+                      className="h-11 w-full rounded-sm bg-bg px-2 text-sm tabular-nums"
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
             <p className="mb-1 text-xs font-medium uppercase tracking-wide text-subtle">Permissions</p>
             <p className="mb-2 text-xs text-muted">
               iPhone asks once. After you tap Allow, this app keeps GPS and compass on each launch — same idea as Google Maps.

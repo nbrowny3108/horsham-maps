@@ -80,6 +80,7 @@ export type BootArgs = {
   paintFix: (fix: GpsFix) => void;
   dropPlace: (next: Place) => Promise<void>;
   styleRoadLayers: () => void;
+  onManualZoom?: () => void;
   isDead?: () => boolean;
 };
 
@@ -108,6 +109,7 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
     paintFix,
     dropPlace,
     styleRoadLayers,
+    onManualZoom,
     isDead,
   } = args;
   let cancelled = false;
@@ -691,6 +693,7 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
       if (e.touches.length < 2) return;
       drive.beginGesture();
       userZoomRef.current = true;
+      onManualZoom?.();
     };
     const pinchEnd = (e: TouchEvent) => {
       if (e.touches.length >= 2) return;

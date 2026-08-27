@@ -1,6 +1,6 @@
 import { HORSHAM_CENTER, SHIRE_BOUNDS } from "./types";
 
-export const TILE_CACHE = "horsham-tiles-v4";
+export const TILE_CACHE = "horsham-tiles-v5";
 
 export function tileCacheKey(url: string): string {
   if (typeof location === "undefined") return url;

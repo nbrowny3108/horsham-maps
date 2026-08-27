@@ -28,7 +28,7 @@ test("manifest name is Horsham Maps", async () => {
 test("service worker is v17 and does not reload from page cache name", async () => {
   const res = await get("/sw.js");
   const js = await res.text();
-  assert.match(js, /horsham-app-v23/);
+  assert.match(js, /horsham-app-v24/);
   assert.match(js, /skipWaiting/);
 });
 
@@ -38,11 +38,13 @@ test("app-cache does not location.reload", () => {
   assert.doesNotMatch(src, /SKIP_WAITING/);
 });
 
-test("drive engine does not auto-zoom while walking", () => {
+test("drive engine holds speed bands and does not animate zoom under rotate", () => {
   const src = readFileSync(new URL("../src/lib/maps/drive-engine.ts", import.meta.url), "utf8");
-  assert.match(src, /kmh >= 8/);
-  assert.match(src, /lastZoomAt = performance\.now\(\)/);
-  assert.doesNotMatch(src, /if \(on\) this\.lastZoomAt = 0/);
+  assert.match(src, /SPEED_ZOOM_HOLD_MS/);
+  assert.match(src, /zoomingUntil/);
+  assert.match(src, /settleUntil/);
+  assert.doesNotMatch(src, /zoomAnimation = true/);
+  assert.match(src, /setView\(cam, z, \{ animate: false \}\)/);
 });
 
 test("tiles: one source at z17 (Vicmap path, image body)", async () => {

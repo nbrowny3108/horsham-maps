@@ -47,20 +47,86 @@ export function zoomFromPercent(pct: number): number {
   return shireFitZoom + t * (ZOOM_MAX - shireFitZoom);
 }
 
-export function zoomForSpeed(kmh: number, currentZoom?: number): number {
-  const z90 = Math.round(zoomFromPercent(90) * 2) / 2;
-  const z80 = Math.round(zoomFromPercent(80) * 2) / 2;
-  const z60 = Math.round(zoomFromPercent(60) * 2) / 2;
-  const cur = currentZoom ?? z80;
-  const d90 = Math.abs(cur - z90);
-  const d80 = Math.abs(cur - z80);
-  const d60 = Math.abs(cur - z60);
-  const band = d90 <= d80 && d90 <= d60 ? 90 : d60 < d80 ? 60 : 80;
-  if (band === 90) return kmh >= 45 ? z80 : z90;
-  if (band === 60) return kmh <= 65 ? z80 : z60;
-  if (kmh <= 35) return z90;
-  if (kmh >= 78) return z60;
-  return z80;
+export type SpeedZoomSettings = {
+  cuts: [number, number, number];
+  pcts: [number, number, number, number];
+};
+
+export const DEFAULT_SPEED_ZOOM: SpeedZoomSettings = {
+  cuts: [5, 20, 50],
+  pcts: [90, 80, 60, 40],
+};
+
+let speedZoom: SpeedZoomSettings = { cuts: [...DEFAULT_SPEED_ZOOM.cuts], pcts: [...DEFAULT_SPEED_ZOOM.pcts] };
+
+function clampPct(n: number): number {
+  const x = Math.round(n / ZOOM_STEP_PCT) * ZOOM_STEP_PCT;
+  return Math.min(100, Math.max(0, x));
+}
+
+export function normalizeSpeedZoom(raw: Partial<SpeedZoomSettings> | null | undefined): SpeedZoomSettings {
+  const cutsIn = Array.isArray(raw?.cuts) ? raw.cuts : DEFAULT_SPEED_ZOOM.cuts;
+  const pctsIn = Array.isArray(raw?.pcts) ? raw.pcts : DEFAULT_SPEED_ZOOM.pcts;
+  const c0 = Math.max(1, Math.min(30, Number(cutsIn[0]) || 5));
+  const c1 = Math.max(c0 + 1, Math.min(80, Number(cutsIn[1]) || 20));
+  const c2 = Math.max(c1 + 1, Math.min(120, Number(cutsIn[2]) || 50));
+  const p0 = clampPct(Number(pctsIn[0]) || 90);
+  const p1 = clampPct(Number(pctsIn[1]) || 80);
+  const p2 = clampPct(Number(pctsIn[2]) || 60);
+  const p3 = clampPct(Number(pctsIn[3]) || 40);
+  return { cuts: [c0, c1, c2], pcts: [p0, p1, p2, p3] };
+}
+
+export function getSpeedZoom(): SpeedZoomSettings {
+  return speedZoom;
+}
+
+export function setSpeedZoom(next: SpeedZoomSettings): SpeedZoomSettings {
+  speedZoom = normalizeSpeedZoom(next);
+  return speedZoom;
+}
+
+export const SPEED_ZOOM_HOLD_MS = 1500;
+export const SPEED_ZOOM_EASE_S = 0.8;
+export const SPEED_ZOOM_FLICKER_KMH = 4;
+export const SPEED_ZOOM_EDGE_KMH = 3;
+
+export function zoomPctForSpeed(kmh: number, currentPct?: number | null): number {
+  const v = Math.max(0, kmh);
+  const { cuts, pcts } = speedZoom;
+  const rawBand = v <= cuts[0] ? 0 : v <= cuts[1] ? 1 : v <= cuts[2] ? 2 : 3;
+  if (currentPct == null) return pcts[rawBand];
+  let curBand = 0;
+  let best = Infinity;
+  for (let i = 0; i < pcts.length; i++) {
+    const d = Math.abs(pcts[i] - currentPct);
+    if (d < best) {
+      best = d;
+      curBand = i;
+    }
+  }
+  if (rawBand === curBand) return pcts[curBand];
+  if (rawBand > curBand) {
+    const edge = curBand === 0 ? cuts[0] : curBand === 1 ? cuts[1] : curBand === 2 ? cuts[2] : null;
+    if (edge != null && v < edge + SPEED_ZOOM_EDGE_KMH) return pcts[curBand];
+  } else {
+    const edge = rawBand === 0 ? cuts[0] : rawBand === 1 ? cuts[1] : cuts[2];
+    if (v > edge - SPEED_ZOOM_EDGE_KMH) return pcts[curBand];
+  }
+  return pcts[rawBand];
+}
+
+export function speedBandLabel(i: number, settings: SpeedZoomSettings = speedZoom): string {
+  const { cuts } = settings;
+  if (i <= 0) return `0–${cuts[0]} km/h`;
+  if (i === 1) return `${cuts[0]}–${cuts[1]} km/h`;
+  if (i === 2) return `${cuts[1]}–${cuts[2]} km/h`;
+  return `${cuts[2]}+ km/h`;
+}
+
+/** Leaflet zoom for this speed. Speed only picks the level — tiles stay the same. */
+export function zoomForSpeed(kmh: number, _currentZoom?: number): number {
+  return Math.round(zoomFromPercent(zoomPctForSpeed(kmh)) * 2) / 2;
 }
 
 export function dockHeightPx(): number {
@@ -69,13 +135,16 @@ export function dockHeightPx(): number {
   return Number.isFinite(h) && h > 0 ? h : 90;
 }
 
+/** Heading-up: puck lower on the screen so more road is ahead (Google-style). */
+export function followPuckY(height: number, headingUp: boolean, dock = 90): number {
+  if (headingUp) return Math.min(height - dock - 44, height * 0.78);
+  return Math.max(height * 0.5, height - dock - 129);
+}
+
 export function followCameraLatLng(map: LeafletMap, here: [number, number], headingUp: boolean) {
   const size = map.getSize();
   if (size.x < 8 || size.y < 8) return { lat: here[0], lng: here[1] };
-  const dock = dockHeightPx();
-  const gap = headingUp ? 93 : 129;
-  const low = Math.max(size.y * 0.62, size.y - dock - gap);
-  const desiredY = Math.max(size.y * 0.5, low - 100);
+  const desiredY = followPuckY(size.y, headingUp, dockHeightPx());
   const centerPt = map.latLngToContainerPoint(map.getCenter());
   const herePt = map.latLngToContainerPoint(here);
   return map.containerPointToLatLng([centerPt.x + herePt.x - size.x / 2, centerPt.y + herePt.y - desiredY]);

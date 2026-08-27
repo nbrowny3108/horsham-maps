@@ -53,18 +53,29 @@ test("geo: formatters, ring, remaining km", () => {
   assert.deepEqual(geo.lineMidpoint({ type: "LineString", coordinates: [[0, 0], [1, 1], [2, 2]] }), [1, 1]);
 });
 
-test("style: zoom bands 90/80/60", () => {
+test("style: zoom bands 90/80/60/40 by speed", () => {
   const z80 = style.zoomFromPercent(80);
   assert.equal(style.zoomPercent(z80), 80);
   assert.equal(style.zoomPercent(style.zoomFromPercent(90)), 90);
   assert.equal(style.zoomPercent(style.zoomFromPercent(60)), 60);
-  const slow = style.zoomForSpeed(20, z80);
-  const mid = style.zoomForSpeed(55, z80);
-  const fast = style.zoomForSpeed(90, z80);
-  assert.ok(Math.abs(slow - style.zoomFromPercent(90)) < 0.6, `slow ${slow}`);
-  assert.ok(Math.abs(mid - z80) < 0.6, `mid ${mid}`);
-  assert.ok(Math.abs(fast - style.zoomFromPercent(60)) < 0.6, `fast ${fast}`);
+  style.setSpeedZoom(style.DEFAULT_SPEED_ZOOM);
+  const creep = style.zoomForSpeed(3, z80);
+  const grade = style.zoomForSpeed(12, z80);
+  const local = style.zoomForSpeed(35, z80);
+  const highway = style.zoomForSpeed(70, z80);
+  assert.ok(Math.abs(creep - style.zoomFromPercent(90)) < 0.6, `creep ${creep}`);
+  assert.ok(Math.abs(grade - style.zoomFromPercent(80)) < 0.6, `grade ${grade}`);
+  assert.ok(Math.abs(local - style.zoomFromPercent(60)) < 0.6, `local ${local}`);
+  assert.ok(Math.abs(highway - style.zoomFromPercent(40)) < 0.6, `highway ${highway}`);
+  assert.equal(style.zoomPctForSpeed(5), 90);
+  assert.equal(style.zoomPctForSpeed(5.1), 80);
+  assert.equal(style.zoomPctForSpeed(6, 90), 90);
+  assert.equal(style.zoomPctForSpeed(9, 90), 80);
+  assert.equal(style.SPEED_ZOOM_HOLD_MS, 1500);
   assert.equal(style.ZOOM_MAX, 21);
+  const puckY = style.followPuckY(956, true, 90);
+  assert.ok(puckY > 956 * 0.7, `heading-up puck too high ${puckY}`);
+  assert.ok(style.followPuckY(956, false, 90) < puckY);
   const b = style.shireLatLngBounds();
   assert.ok(b[0][0] < types.SHIRE_BOUNDS.north);
 });
@@ -169,6 +180,22 @@ test("DriveEngine: 20 m walk accumulates trip; 200 m noisy jump ignored", () => 
 test("tiles helpers, road chunks, places, library size", () => {
   const urls = tiles.tileUrlsInBounds("best", 16, 142.24, -36.71, 142.25, -36.7);
   assert.ok(urls.length > 0);
+  assert.equal(tiles.lookAheadSeconds(0), 20);
+  assert.equal(tiles.lookAheadSeconds(80), 40);
+  assert.equal(tiles.lookAheadSeconds(40), 30);
+  const plan = tiles.drivePrefetchPlan({
+    lat: -36.717,
+    lng: 142.2,
+    heading: 0,
+    speedKmh: 80,
+    zoom: 16,
+    kind: "best",
+  });
+  assert.equal(plan.horizonSec, 40);
+  assert.ok(plan.ahead.length > 4 && plan.ahead.length <= 36, `ahead ${plan.ahead.length}`);
+  assert.match(plan.ahead[0], /\/api\/tiles\/best\/16\//);
+  assert.equal(tiles.TILE_LAYER_OPTS.detectRetina, false);
+  assert.equal(tiles.TILE_LAYER_OPTS.keepBuffer, 3);
   assert.ok(urls.every((u) => u.startsWith("/api/tiles/best/16/")));
   assert.ok(roads.visibleChunkKeys(142.2, -36.72, 142.25, -36.7).length >= 1);
   assert.ok(roads.headingPadKeys(-36.7044, 142.2425, 0, 1.8).length >= 1);

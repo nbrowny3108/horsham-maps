@@ -17,6 +17,8 @@ import {
   zoomFromPercent,
   zoomForSpeed,
   zoomPercent,
+  setSpeedZoom,
+  type SpeedZoomSettings,
 } from "@/lib/maps/style";
 import { startBackgroundCache } from "@/lib/maps/app-cache";
 import { listMapLibrary, saveMapLibrary, type LibraryFile } from "@/lib/maps/map-library";
@@ -36,6 +38,7 @@ import {
   loadPlacesOn,
   loadRecents,
   loadSensorsOnboarded,
+  loadSpeedZoom,
   loadTrack,
   appendTrackPoint,
   clearTrack,
@@ -49,6 +52,7 @@ import {
   savePins,
   savePlacesOn,
   saveSensorsOnboarded,
+  saveSpeedZoom,
 } from "@/lib/maps/storage";
 import {
   MAP_COLORS,
@@ -144,6 +148,11 @@ export function MapApp() {
   const [needStart, setNeedStart] = useState(false);
   const [zoomPct, setZoomPct] = useState(80);
   const [autoZoom, setAutoZoom] = useState(() => loadAutoZoom());
+  const [speedZoom, setSpeedZoomState] = useState<SpeedZoomSettings>(() => {
+    const next = loadSpeedZoom();
+    setSpeedZoom(next);
+    return next;
+  });
   const [locating, setLocating] = useState(false);
   const [hasFix, setHasFix] = useState(false);
   const [gpsLabel, setGpsLabel] = useState("");
@@ -162,6 +171,12 @@ export function MapApp() {
   pinAimRef.current = pinAim;
   needStartRef.current = needStart;
   setZoomPctRef.current = setZoomPct;
+
+  function applySpeedZoom(next: SpeedZoomSettings) {
+    const clean = setSpeedZoom(next);
+    setSpeedZoomState(clean);
+    saveSpeedZoom(clean);
+  }
 
   function setZoomMode(auto: boolean) {
     setAutoZoom(auto);
@@ -313,8 +328,8 @@ export function MapApp() {
         const z = ctxNow.map.getZoom();
         const kind = "best" as const;
         prefetchDrive({
-          lat: here[0],
-          lng: here[1],
+          lat: (drive.current.display ?? here)[0],
+          lng: (drive.current.display ?? here)[1],
           heading: drive.current.heading || headingRef.current,
           speedKmh: fix.speed * 3.6,
           zoom: z,
@@ -470,6 +485,7 @@ export function MapApp() {
           paintFix: (fix) => paintFixRef.current(fix),
           dropPlace,
           styleRoadLayers,
+          onManualZoom: () => setZoomModeRef.current(false),
           isDead: () => dead,
         });
       } catch {
@@ -576,6 +592,9 @@ export function MapApp() {
         handle.current?.accuracy?.setLatLng(here);
       },
       paintLabels: () => handle.current?.paintLabels?.(),
+      prefetchZoom: (lat, lng, heading, speedKmh, zoom) => {
+        prefetchDrive({ lat, lng, heading, speedKmh, zoom, kind: "best", route: routeCoords.current, force: true });
+      },
       onHud: (hud) => {
         if (hud.heading != null) {
           headingRef.current = hud.heading;
@@ -975,6 +994,8 @@ export function MapApp() {
       savingOffline={savingOffline}
       offlineAt={offlineAt}
       autoZoom={autoZoom}
+      speedZoom={speedZoom}
+      applySpeedZoom={applySpeedZoom}
       geoPerm={geoPerm}
       alwaysGps={alwaysGps}
       motionPerm={motionPerm}

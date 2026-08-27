@@ -1,6 +1,6 @@
 import type { Map as LeafletMap } from "leaflet";
 import { deadReckon, HeadingEngine, holdScreenWakeLock, toLeafletBearing, type HeadingSnapshot } from "./heading";
-import { followCameraLatLng, zoomForSpeed } from "./style";
+import { followCameraLatLng, SPEED_ZOOM_FLICKER_KMH, SPEED_ZOOM_HOLD_MS, zoomForSpeed, zoomPctForSpeed, zoomPercent } from "./style";
 import { RoadIndex, snapCurrentRoad, snapNextRoad, snapPuckToRoad, type JunctionSnap, type RoadSnap } from "./snap";
 import type { GpsFix } from "./gps";
 
@@ -30,6 +30,7 @@ type DriveHooks = {
   canRotate: () => boolean;
   setGpsLatLng: (here: [number, number]) => void;
   paintLabels: () => void;
+  prefetchZoom?: (lat: number, lng: number, heading: number, speedKmh: number, zoom: number) => void;
   onHud: (hud: Partial<DriveHud>) => void;
 };
 
@@ -58,6 +59,12 @@ export class DriveEngine {
   private lastCam: [number, number] | null = null;
   private lastNames = 0;
   private lastZoomAt = 0;
+  private bandKmh = 0;
+  private pendingPct: number | null = null;
+  private pendingSince = 0;
+  private appliedPct: number | null = null;
+  private zoomingUntil = 0;
+  private settleUntil = 0;
   private lastHud = 0;
   private lastBearing = -999;
   private tripLast: [number, number] | null = null;
@@ -74,6 +81,10 @@ export class DriveEngine {
     this.lastFrame = performance.now();
     this.lastZoomAt = performance.now();
     this.lastPan = performance.now();
+    this.settleUntil = performance.now() + 2800;
+    this.pendingPct = null;
+    this.appliedPct = null;
+    this.zoomingUntil = 0;
     this.raf = window.requestAnimationFrame(this.loop);
     this.wake = holdScreenWakeLock();
   }
@@ -96,6 +107,11 @@ export class DriveEngine {
 
   setAutoZoom(on: boolean): void {
     this.autoZoom = on;
+    if (!on) {
+      this.pendingPct = null;
+    } else {
+      this.appliedPct = null;
+    }
   }
 
   isAutoZoom(): boolean {
@@ -209,6 +225,10 @@ export class DriveEngine {
 
     const map = hooks.map();
     if (this.gesturing) return;
+    if (now < this.zoomingUntil) {
+      if (this.display) hooks.setGpsLatLng(this.display);
+      return;
+    }
     const raw = this.last;
     if (map && raw && hooks.follow() && !hooks.userZoom()) {
       let next = this.display ?? raw;
@@ -217,31 +237,48 @@ export class DriveEngine {
       next = [next[0] + (raw[0] - next[0]) * t, next[1] + (raw[1] - next[1]) * t];
       this.display = next;
       hooks.setGpsLatLng(next);
-      if (now - this.lastPan >= 140) {
+      if (now - this.lastPan >= 48) {
         const cam = followCameraLatLng(map, next, hooks.headingUp());
         const moved =
           !this.lastCam ||
-          Math.abs(cam.lat - this.lastCam[0]) > 3.5e-5 ||
-          Math.abs(cam.lng - this.lastCam[1]) > 4e-5;
+          Math.abs(cam.lat - this.lastCam[0]) > 1.1e-5 ||
+          Math.abs(cam.lng - this.lastCam[1]) > 1.4e-5;
         const zNow = map.getZoom();
-        const kmh = this.speed * 3.6;
-        const wantAuto = this.autoZoom && now - this.lastZoomAt > 4500 && kmh >= 8;
+        const kmhRaw = this.speed * 3.6;
+        if (Math.abs(kmhRaw - this.bandKmh) >= SPEED_ZOOM_FLICKER_KMH) this.bandKmh = kmhRaw;
         let z = zNow;
         let zooming = false;
-        if (wantAuto) {
-          const target = zoomForSpeed(kmh, zNow);
-          if (Math.abs(target - zNow) >= 0.45) {
-            z = target;
-            zooming = true;
+        if (this.autoZoom && now >= this.settleUntil) {
+          const wantPct = zoomPctForSpeed(this.bandKmh, this.appliedPct);
+          if (this.appliedPct == null) this.appliedPct = zoomPercent(zNow);
+          if (wantPct !== this.appliedPct) {
+            if (this.pendingPct !== wantPct) {
+              this.pendingPct = wantPct;
+              this.pendingSince = now;
+              const here = this.display ?? raw;
+              hooks.prefetchZoom?.(here[0], here[1], this.heading, this.bandKmh, zoomForSpeed(this.bandKmh, zNow));
+            } else if (now - this.pendingSince >= SPEED_ZOOM_HOLD_MS) {
+              const target = zoomForSpeed(this.bandKmh, zNow);
+              if (Math.abs(target - zNow) >= 0.45) {
+                z = target;
+                zooming = true;
+              }
+              this.appliedPct = wantPct;
+              this.pendingPct = null;
+              this.lastZoomAt = now;
+            }
+          } else {
+            this.pendingPct = null;
           }
-          this.lastZoomAt = now;
         }
         if (moved || zooming) {
           this.lastPan = now;
           this.lastCam = [cam.lat, cam.lng];
           this.panning = true;
-          if (zooming) map.setView(cam, z, { animate: false });
-          else map.panTo(cam, { animate: false, duration: 0, noMoveStart: true } as import("leaflet").PanOptions);
+          if (zooming) {
+            map.setView(cam, z, { animate: false });
+            this.zoomingUntil = now + 360;
+          } else map.panTo(cam, { animate: false, duration: 0, noMoveStart: true } as import("leaflet").PanOptions);
           this.panning = false;
         }
       }

@@ -3,11 +3,12 @@ import { quotaAllowsMore } from "./map-library";
 import { zoomForSpeed } from "./style";
 
 const inflight = new Set<string>();
-let queue: string[] = [];
+let aheadQ: string[] = [];
+let laterQ: string[] = [];
 let workers = 0;
 let paused = false;
 const MAX_WORKERS = 2;
-const QUEUE_MAX = 80;
+const QUEUE_MAX = 48;
 
 function tileXY(lat: number, lng: number, z: number) {
   const n = 2 ** z;
@@ -43,6 +44,11 @@ export function tileUrlsInBounds(
   return urls;
 }
 
+/** 20 s creeping, up to 40 s on the highway. Faster = longer corridor, not extra zoom. */
+export function lookAheadSeconds(kmh: number): number {
+  return Math.min(40, Math.max(20, 20 + Math.max(0, kmh) / 4));
+}
+
 async function inCache(url: string): Promise<boolean> {
   if (typeof caches === "undefined") return false;
   try {
@@ -56,8 +62,8 @@ async function inCache(url: string): Promise<boolean> {
 
 async function pump(): Promise<void> {
   if (typeof document !== "undefined" && document.hidden) return;
-  while (workers < MAX_WORKERS && queue.length) {
-    const url = queue.shift();
+  while (workers < MAX_WORKERS && (aheadQ.length || laterQ.length)) {
+    const url = aheadQ.shift() || laterQ.shift();
     if (!url) break;
     if (inflight.has(url)) continue;
     inflight.add(url);
@@ -65,7 +71,7 @@ async function pump(): Promise<void> {
     void (async () => {
       try {
         if (await inCache(url)) return;
-        const res = await fetch(url, { cache: "force-cache", priority: "high" } as RequestInit);
+        const res = await fetch(url, { cache: "force-cache", priority: "low" } as RequestInit);
         if (!res.ok || typeof caches === "undefined") return;
         if (!(await quotaAllowsMore())) return;
         const cache = await caches.open(TILE_CACHE);
@@ -82,102 +88,87 @@ async function pump(): Promise<void> {
   }
 }
 
-function pushUnique(urls: string[], front: boolean): void {
+function pushLane(urls: string[], lane: "ahead" | "later"): void {
   if (paused) return;
-  const seen = new Set(queue);
-  const next: string[] = [];
+  const seen = new Set([...aheadQ, ...laterQ, ...inflight]);
+  const dest = lane === "ahead" ? aheadQ : laterQ;
   for (const raw of urls) {
     const url = raw.split("?")[0] ?? raw;
-    if (inflight.has(url) || seen.has(url)) continue;
+    if (seen.has(url)) continue;
     seen.add(url);
-    next.push(url);
+    dest.push(url);
   }
-  queue = front ? [...next, ...queue] : [...queue, ...next];
-  if (queue.length > QUEUE_MAX) queue = queue.slice(0, QUEUE_MAX);
+  while (aheadQ.length + laterQ.length > QUEUE_MAX) {
+    if (laterQ.length) laterQ.pop();
+    else aheadQ.pop();
+  }
   void pump();
 }
 
 export function enqueueTiles(urls: string[]): void {
-  pushUnique(urls, false);
+  pushLane(urls, "later");
 }
 
 /** After a pan/zoom, quietly fill neighbouring tiles so the next move is instant. */
 export function prefetchAround(map: import("leaflet").Map, kind: "street" | "sat" | "vic" | "best"): void {
   if (paused || document.hidden) return;
   const z = map.getZoom();
-  const b = map.getBounds().pad(0.45);
+  const b = map.getBounds().pad(0.2);
   const west = b.getWest();
   const south = b.getSouth();
   const east = b.getEast();
   const north = b.getNorth();
-  const urls = tileUrlsInBounds(kind, z, west, south, east, north).slice(0, 18);
-  if (z > 10) urls.push(...tileUrlsInBounds(kind, z - 1, west, south, east, north).slice(0, 8));
-  pushUnique(urls, false);
+  const urls = tileUrlsInBounds(kind, z, west, south, east, north).slice(0, 12);
+  pushLane(urls, "later");
 }
 
-/**
- * Time-horizon predictive prefetch (Google / Mapbox pattern).
- *
- * Near field (0–8 s) at full zoom, mid (8–25 s) current zoom, far (25–55 s)
- * at parent zooms. A heading cone covers GPS wander; if a route is set the
- * polyline wins because that's the road you actually take.
- */
-export function prefetchDrive(opts: {
+function ringUrls(kind: string, z: number, lat: number, lng: number, ring: number, seen: Set<string>, out: string[]): void {
+  const { x, y } = tileXY(lat, lng, z);
+  const max = 2 ** z - 1;
+  for (let dx = -ring; dx <= ring; dx++) {
+    for (let dy = -ring; dy <= ring; dy++) {
+      const xx = x + dx;
+      const yy = y + dy;
+      if (xx < 0 || yy < 0 || xx > max || yy > max) continue;
+      const url = `/api/tiles/${kind}/${z}/${xx}/${yy}`;
+      if (seen.has(url)) continue;
+      seen.add(url);
+      out.push(url);
+    }
+  }
+}
+
+function alongHeading(lat: number, lng: number, heading: number, metres: number): [number, number] {
+  const rad = (heading * Math.PI) / 180;
+  const km = metres / 1000;
+  return [lat + (km * Math.cos(rad)) / 111.32, lng + (km * Math.sin(rad)) / (111.32 * Math.cos((lat * Math.PI) / 180))];
+}
+
+/** Corridor tiles: heading cone for 20–40 s, then next speed-band zoom. */
+export function drivePrefetchPlan(opts: {
   lat: number;
   lng: number;
   heading: number;
   speedKmh: number;
   zoom: number;
-  kind: "street" | "sat" | "vic" | "best";
+  kind?: "street" | "sat" | "vic" | "best";
   route?: [number, number][] | null;
-}): void {
-  if (paused || document.hidden) return;
-  if (opts.speedKmh < 8) return;
+}): { ahead: string[]; nextZoom: string[]; horizonSec: number } {
   const lat = opts.lat;
   const lng = opts.lng;
-  const kind = opts.zoom >= 17 ? "best" : opts.kind;
-  const speedMs = Math.max(0, opts.speedKmh) / 3.6;
+  const kmh = Math.max(0, opts.speedKmh);
+  const kind = (opts.zoom >= 17 ? "best" : opts.kind) || "best";
   const z = Math.max(10, Math.min(20, Math.round(opts.zoom)));
-  const nextZ = Math.max(10, Math.min(20, Math.round(zoomForSpeed(opts.speedKmh, opts.zoom))));
-  const urls: string[] = [];
+  const nextZ = Math.max(10, Math.min(20, Math.round(zoomForSpeed(kmh, opts.zoom))));
+  const horizonSec = lookAheadSeconds(kmh);
+  const speedMs = kmh / 3.6;
+  const cruise = Math.max(speedMs, 1.5);
+  const horizonM = cruise * horizonSec;
   const seen = new Set<string>();
-  const add = (zz: number, la: number, ln: number, ring: number) => {
-    const { x, y } = tileXY(la, ln, zz);
-    const max = 2 ** zz - 1;
-    for (let dx = -ring; dx <= ring; dx++) {
-      for (let dy = -ring; dy <= ring; dy++) {
-        const xx = x + dx;
-        const yy = y + dy;
-        if (xx < 0 || yy < 0 || xx > max || yy > max) continue;
-        const url = `/api/tiles/${kind}/${zz}/${xx}/${yy}`;
-        if (seen.has(url)) continue;
-        seen.add(url);
-        urls.push(url);
-      }
-    }
-  };
+  const ahead: string[] = [];
+  const nextZoom: string[] = [];
 
-  const bands =
-    z >= 17
-      ? [
-          { t0: 0, t1: 18, zoom: z, ring: 1 },
-          { t0: 8, t1: 36, zoom: z, ring: 1 },
-          { t0: 14, t1: 50, zoom: Math.max(10, z - 1), ring: 1 },
-        ]
-      : [
-          { t0: 0, t1: 12, zoom: z, ring: 2 },
-          { t0: 8, t1: 30, zoom: z, ring: 1 },
-          { t0: 12, t1: 50, zoom: Math.max(10, z - 1), ring: 1 },
-          { t0: 25, t1: 70, zoom: Math.max(10, z - 2), ring: 1 },
-        ];
-  if (Math.abs(nextZ - z) >= 1) {
-    bands.push({ t0: 0, t1: 24, zoom: nextZ, ring: z >= 17 ? 1 : 2 });
-  }
-
-  const cruise = Math.max(speedMs, 4);
-  const ahead = 55;
-  const points: { lat: number; lng: number; t: number }[] = [{ lat, lng, t: 0 }];
-
+  const samples: { lat: number; lng: number; t: number }[] = [{ lat, lng, t: 0 }];
   if (opts.route && opts.route.length > 1) {
     let nearest = 0;
     let best = Infinity;
@@ -193,43 +184,62 @@ export function prefetchDrive(opts: {
     let acc = 0;
     let lastSample = 0;
     let prev = opts.route[nearest] ?? [lat, lng];
-    for (let i = nearest + 1; i < opts.route.length && acc < cruise * ahead; i++) {
+    for (let i = nearest + 1; i < opts.route.length && acc < horizonM; i++) {
       const p = opts.route[i];
       if (!p) continue;
       const step = Math.hypot((p[0] - prev[0]) * 111.32, (p[1] - prev[1]) * 89.2);
       acc += step;
       prev = p;
-      if (acc - lastSample >= 0.18 || i === opts.route.length - 1) {
+      if (acc - lastSample >= 0.12 || i === opts.route.length - 1) {
         lastSample = acc;
-        points.push({ lat: p[0], lng: p[1], t: acc / cruise });
+        samples.push({ lat: p[0], lng: p[1], t: acc / cruise });
+      }
+    }
+  } else {
+    const cone = kmh < 15 ? 12 : kmh < 50 ? 8 : 6;
+    const bearings = kmh < 4 ? [opts.heading] : [opts.heading - cone, opts.heading, opts.heading + cone];
+    const stepSec = z >= 17 ? 5 : 4;
+    for (const brg of bearings) {
+      for (let t = stepSec; t <= horizonSec + 0.01; t += stepSec) {
+        const [la, ln] = alongHeading(lat, lng, brg, cruise * t);
+        samples.push({ lat: la, lng: ln, t });
       }
     }
   }
 
-  const cone = speedMs < 2.5 ? 28 : speedMs < 14 ? 12 : 8;
-  const bearings = speedMs < 1.2 ? [opts.heading] : [opts.heading - cone, opts.heading, opts.heading + cone];
-  const times = z >= 17 ? [3, 8, 14, 22, 32, 45] : [4, 8, 14, 22, 32, 45, 55];
-  for (const brg of bearings) {
-    const rad = (brg * Math.PI) / 180;
-    for (const t of times) {
-      const metres = cruise * t;
-      const km = metres / 1000;
-      points.push({
-        lat: lat + (km * Math.cos(rad)) / 111.32,
-        lng: lng + (km * Math.sin(rad)) / (111.32 * Math.cos((lat * Math.PI) / 180)),
-        t,
-      });
+  const ring = z >= 17 ? 1 : 1;
+  for (const p of samples) {
+    if (p.t < -0.2) continue;
+    ringUrls(kind, z, p.lat, p.lng, ring, seen, ahead);
+  }
+  ringUrls(kind, z, lat, lng, 1, seen, ahead);
+
+  if (Math.abs(nextZ - z) >= 1) {
+    const nextSeen = new Set(seen);
+    for (const p of samples) {
+      if (p.t > horizonSec * 0.75) continue;
+      ringUrls(kind, nextZ, p.lat, p.lng, 1, nextSeen, nextZoom);
     }
   }
 
-  for (const p of points) {
-    for (const band of bands) {
-      if (p.t < band.t0 || p.t > band.t1) continue;
-      add(band.zoom, p.lat, p.lng, band.ring);
-    }
-  }
-  add(z, lat, lng, z >= 17 ? 1 : 2);
-  pushUnique(urls, true);
+  return { ahead: ahead.slice(0, 36), nextZoom: nextZoom.slice(0, 16), horizonSec };
+}
+
+export function prefetchDrive(opts: {
+  lat: number;
+  lng: number;
+  heading: number;
+  speedKmh: number;
+  zoom: number;
+  kind: "street" | "sat" | "vic" | "best";
+  route?: [number, number][] | null;
+  force?: boolean;
+}): void {
+  if (paused || document.hidden) return;
+  if (!opts.force && opts.speedKmh < 2) return;
+  const plan = drivePrefetchPlan(opts);
+  pushLane(plan.ahead, "ahead");
+  pushLane(plan.nextZoom, "later");
 }
 
 export function resumePrefetch(): void {
@@ -239,7 +249,7 @@ export function resumePrefetch(): void {
 export const TILE_LAYER_OPTS = {
   maxZoom: 21,
   maxNativeZoom: 19,
-  keepBuffer: 4,
+  keepBuffer: 3,
   updateWhenZooming: true,
   updateWhenIdle: false,
   detectRetina: false,
