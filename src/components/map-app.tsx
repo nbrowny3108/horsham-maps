@@ -245,6 +245,7 @@ export function MapApp() {
       const d = Math.abs(((next - prev + 540) % 360) - 180);
       if (d < 0.08) return;
       ctx.map.setBearing(next, true);
+      ctx.paintLabels?.();
     } catch {
       /* rotate can throw on a torn-down map */
     }
@@ -617,6 +618,13 @@ export function MapApp() {
     if (!ready) return;
     handle.current?.paintLabels?.();
   }, [headingMode, gpsMode, ready]);
+
+  useEffect(() => {
+    if (gpsMode === "follow") return;
+    gpsOnRef.current = false;
+    stopGpsRef.current();
+    stopGpsRef.current = () => {};
+  }, [gpsMode]);
 
   useEffect(() => {
     if (!settingsOpen) return;
