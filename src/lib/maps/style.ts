@@ -131,8 +131,10 @@ export function zoomForSpeed(kmh: number, _currentZoom?: number): number {
 
 export function dockHeightPx(): number {
   const footer = document.querySelector("footer");
-  const h = footer?.getBoundingClientRect().height ?? 90;
-  return Number.isFinite(h) && h > 0 ? h : 90;
+  const box = footer?.getBoundingClientRect();
+  const h = box?.height ?? 90;
+  const gap = box ? Math.max(0, window.innerHeight - box.bottom) : 10;
+  return (Number.isFinite(h) && h > 0 ? h : 90) + gap;
 }
 
 /** Heading-up: puck lower on the screen so more road is ahead (Google-style). */
