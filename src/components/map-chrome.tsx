@@ -418,7 +418,7 @@ mapEl,
       ) : null}
 
       {!layersOpen && !settingsOpen ? (
-        <div className="pointer-events-auto fixed right-3 z-[10015] bottom-[118px] flex flex-col overflow-hidden rounded-md bg-elevated shadow-md">
+        <div className="pointer-events-auto fixed right-3 z-[10025] bottom-[calc(118px+env(safe-area-inset-bottom,0px))] flex flex-col overflow-hidden rounded-md bg-elevated shadow-md">
           <p className="px-1 py-1 text-center text-[11px] font-semibold tabular-nums leading-none text-fg" aria-live="polite">
             {zoomPct}%
           </p>
@@ -809,4 +809,3 @@ mapEl,
     </div>
   );
 }
-
