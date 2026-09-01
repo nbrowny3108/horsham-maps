@@ -305,6 +305,26 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
       );
     };
 
+    const snapBearing = (lat: number, lng: number, name: string) => {
+      const key = roadKey(name);
+      const nearest = (matchName: boolean) => {
+        let best = 90;
+        let bestD = Infinity;
+        for (const sn of drive.snaps) {
+          if (matchName && key && roadKey(sn.name) !== key) continue;
+          const d = Math.hypot((sn.lat - lat) * 111.32, (sn.lng - lng) * 89.2);
+          if (d < bestD) {
+            bestD = d;
+            best = sn.brg;
+          }
+        }
+        return { best, bestD };
+      };
+      const named = nearest(true);
+      if (named.bestD < 0.25) return named.best;
+      return nearest(false).best;
+    };
+
     const paintMidpointLabels = (maxN: number) => {
       const z = map.getZoom();
       const maxCls = z < 11 ? 2 : z < 12 ? 3 : z < 13 ? 4 : z < 15 ? 5 : 6;
@@ -314,7 +334,7 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
       for (const lab of labels) {
         if (lab.cls > maxCls || seen.has(lab.name) || !bounds.contains([lab.lat, lab.lng])) continue;
         seen.add(lab.name);
-        addAlongLabel(lab.lat, lab.lng, lab.name, 90, lab.cls <= 2 ? "road-lab-lg" : "", 400 - lab.cls);
+        addAlongLabel(lab.lat, lab.lng, lab.name, snapBearing(lab.lat, lab.lng, lab.name), lab.cls <= 2 ? "road-lab-lg" : "", 400 - lab.cls);
         n += 1;
         if (n >= maxN) break;
       }
@@ -410,24 +430,81 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
       }
     };
 
+    const inDriveCone = (lat: number, lng: number, here: [number, number], hd: number) => {
+      const dN = (lat - here[0]) * 111.32;
+      const dE = (lng - here[1]) * 89.2;
+      const rad = (hd * Math.PI) / 180;
+      const ahead = dN * Math.cos(rad) + dE * Math.sin(rad);
+      const side = -dN * Math.sin(rad) + dE * Math.cos(rad);
+      return ahead >= -0.5 && ahead <= 10 && Math.abs(side) <= 1.5;
+    };
+
+    const flattenLatLngs = (raw: unknown): { lat: number; lng: number }[] => {
+      const out: { lat: number; lng: number }[] = [];
+      const walk = (v: unknown) => {
+        if (!v) return;
+        if (Array.isArray(v)) {
+          for (const x of v) walk(x);
+          return;
+        }
+        const pt = v as { lat?: number; lng?: number };
+        if (typeof pt.lat === "number" && typeof pt.lng === "number") out.push({ lat: pt.lat, lng: pt.lng });
+      };
+      walk(raw);
+      return out;
+    };
+
+    const cullDriveOverlays = (here: [number, number] | null, drivingFast: boolean) => {
+      const z = map.getZoom();
+      const hideOsm = drivingFast;
+      ctx.roadLines?.setStyle(hideOsm ? { opacity: 0, weight: 0 } : roadLineStyle("hybrid"));
+      ctx.roadChunks?.eachLayer((layer) => {
+        const g = layer as import("leaflet").GeoJSON;
+        if (g.setStyle) g.setStyle(hideOsm ? { opacity: 0, weight: 0 } : roadLineStyle("hybrid"));
+      });
+      if (!ctx.grading) return;
+      const style = gradeStyle("hybrid");
+      if (!drivingFast || z < 12 || !here) {
+        ctx.grading.setStyle(style);
+        return;
+      }
+      const hd = headingRef.current;
+      ctx.grading.eachLayer((layer) => {
+        const path = layer as import("leaflet").Polyline & { feature?: import("geojson").Feature; setStyle: (st: object) => void };
+        const pts = flattenLatLngs(path.getLatLngs?.());
+        const show = pts.length ? pts.some((p) => inDriveCone(p.lat, p.lng, here, hd)) : true;
+        const base = style(path.feature);
+        path.setStyle(show ? base : { ...base, opacity: 0, weight: 0 });
+      });
+    };
+
     const paintLabels = () => {
       ctx.names.clearLayers();
       const here = lastGps.current;
+      const kmh = speedRef.current * 3.6;
       const driving = headingModeRef.current === "heading" && gpsModeRef.current === "follow";
+      const drivingFast = driving && kmh >= 8;
       if (driving && here) {
         paintDriveLabels(here, headingRef.current);
-        paintPlaces();
+        if (!drivingFast) paintPlaces();
+        else {
+          ctx.places?.clearLayers();
+        }
+        cullDriveOverlays(here, drivingFast);
         return;
       }
       paintMidpointLabels(140);
       paintPlaces();
+      cullDriveOverlays(here, false);
     };
     ctx.paintLabels = paintLabels;
     let labelTimer = 0;
-    map.on("moveend zoomend", () => {
+    const scheduleLabels = () => {
       window.clearTimeout(labelTimer);
       labelTimer = window.setTimeout(() => ctx.paintLabels?.(), 120);
-    });
+    };
+    map.on("moveend zoomend", scheduleLabels);
+    map.on("rotate", scheduleLabels);
     paintLabels();
 
     try {
@@ -545,7 +622,18 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
           layer.on("click", (ev) => {
             L.DomEvent.stopPropagation(ev);
             const ll = "latlng" in ev ? (ev as { latlng: { lat: number; lng: number } }).latlng : map.getCenter();
-            const title = String(props.Road_name || props.name || "").trim();
+            let title = String(props.Road_name || props.name || "").trim();
+            if (!title) {
+              let bestD = Infinity;
+              for (const sn of drive.snaps) {
+                const d = Math.hypot((sn.lat - ll.lat) * 111.32, (sn.lng - ll.lng) * 89.2);
+                if (d < bestD && sn.name) {
+                  bestD = d;
+                  title = sn.name;
+                }
+              }
+              if (bestD > 0.12) title = "";
+            }
             const from = String(props.From || "").trim();
             const to = String(props.To || "").trim();
             const zone = String(props.Grading_re || "").trim();
@@ -553,7 +641,7 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
             void dropPlace({
               lat: ll.lat,
               lng: ll.lng,
-              title: title || "Unnamed road",
+              title: title || from || to || "Grading road",
               subtitle: [
                 String(props.program || ""),
                 from && to ? `${from} → ${to}` : from || to,
