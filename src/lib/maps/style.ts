@@ -213,12 +213,13 @@ export function roadLineStyle(base: BaseLayer) {
     if (base === "hybrid") {
       const name = String(props.name ?? "");
       const prog = name ? hybridGrade.names.get(roadKey(name)) : undefined;
-      if (hybridGrade.show && prog) {
+      // Hide unsealed under pink grading; sealed (surf===0) always stays drawn.
+      if (hybridGrade.show && prog && surf !== 0) {
         return { opacity: 0, weight: 0 };
       }
       if (surf === 2) return { color: MAP_COLORS.roadEarth, weight: 1.4, opacity: 1, lineCap: "round" as const, lineJoin: "round" as const };
-      if (surf === 1) return { color: MAP_COLORS.grade, weight: 1.7, opacity: 1, lineCap: "round" as const, lineJoin: "round" as const };
-      return { color: MAP_COLORS.roadHybrid, weight: 1.35, opacity: 1, lineCap: "round" as const, lineJoin: "round" as const };
+      if (surf === 1) return { color: MAP_COLORS.roadEarth, weight: 1.7, opacity: 1, lineCap: "round" as const, lineJoin: "round" as const };
+      return { color: MAP_COLORS.roadHybrid, weight: 2.4, opacity: 1, lineCap: "round" as const, lineJoin: "round" as const };
     }
     return { color: MAP_COLORS.road, weight: cls <= 2 ? 2.1 : cls <= 4 ? 1.55 : 1.15, opacity: 0.82, lineCap: "round" as const, lineJoin: "round" as const };
   };

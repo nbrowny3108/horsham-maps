@@ -164,7 +164,7 @@ export class DriveEngine {
     const road = snapCurrentRoad(this.snaps, here, hd, this.roads) || this.road;
     if (road && road !== this.road) this.road = road;
     const next = snapNextRoad(this.junctions, this.road, here, hd);
-    if (next !== this.next) this.next = next;
+    if (next) this.next = next;
     this.hooks?.onHud({
       speedKmh: fix.speed > 0 ? fix.speed * 3.6 : null,
       road: this.road,

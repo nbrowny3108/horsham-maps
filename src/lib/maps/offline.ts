@@ -124,7 +124,7 @@ export async function saveOfflinePack(
   const total = urls.length;
   onProgress({ done: 0, total, label: "Starting download" });
   const queue = [...urls];
-  const workers = Array.from({ length: 6 }, async () => {
+  const workers = Array.from({ length: 12 }, async () => {
     while (queue.length) {
       const url = queue.shift();
       if (!url) break;

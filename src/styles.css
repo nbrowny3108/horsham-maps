@@ -21,7 +21,7 @@
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 20px;
-  --dock-height: 110px;
+  --dock-height: 100px;
 }
 
 @layer base {
@@ -139,8 +139,8 @@ footer {
   right: 10px;
   bottom: max(10px, env(safe-area-inset-bottom, 0px));
   width: auto;
-  height: 90px;
-  max-height: 90px;
+  height: 100px;
+  max-height: 100px;
   padding: 0;
   margin: 0;
   border-radius: 12px;

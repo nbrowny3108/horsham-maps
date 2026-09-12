@@ -57,7 +57,7 @@ export const MAP_COLORS = {
   route: "#ffe14a",
   gps: "#1a73e8",
   road: "#8d8880",
-  roadHybrid: "#e11d2e",
+  roadHybrid: "#d93025",
   roadEarth: "#8b4a1a",
   roadSat: "#efe8d8",
 } as const;

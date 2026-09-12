@@ -166,6 +166,17 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
     map.createPane("gpsPane");
     const gpsPane = map.getPane("gpsPane");
     if (gpsPane) gpsPane.style.zIndex = "650";
+    const rotateParent = map.getPane("rotatePane") ?? map.getPane("overlayPane") ?? map.getContainer();
+    if (!map.getPane("roadsPane")) {
+      map.createPane("roadsPane", rotateParent);
+      const roadsPane = map.getPane("roadsPane");
+      if (roadsPane) roadsPane.style.zIndex = "420";
+    }
+    if (!map.getPane("gradingPane")) {
+      map.createPane("gradingPane", rotateParent);
+      const gradingPane = map.getPane("gradingPane");
+      if (gradingPane) gradingPane.style.zIndex = "440";
+    }
 
     if (dead()) {
       try {
@@ -457,10 +468,15 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
     const cullDriveOverlays = (here: [number, number] | null, drivingFast: boolean) => {
       const z = map.getZoom();
       const hideOsm = drivingFast;
-      ctx.roadLines?.setStyle(hideOsm ? { opacity: 0, weight: 0 } : roadLineStyle("hybrid"));
+      const sealedStyle = (feat?: import("geojson").Feature) => {
+        const surf = Number((feat?.properties as { surf?: number } | undefined)?.surf ?? 0);
+        if (hideOsm && surf !== 0) return { opacity: 0, weight: 0 };
+        return roadLineStyle("hybrid")(feat);
+      };
+      ctx.roadLines?.setStyle(sealedStyle);
       ctx.roadChunks?.eachLayer((layer) => {
         const g = layer as import("leaflet").GeoJSON;
-        if (g.setStyle) g.setStyle(hideOsm ? { opacity: 0, weight: 0 } : roadLineStyle("hybrid"));
+        if (g.setStyle) g.setStyle(sealedStyle);
       });
       if (!ctx.grading) return;
       const style = gradeStyle("hybrid");
@@ -511,13 +527,7 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
       const roads = packed.roads as { features?: { properties?: { name?: string; highway?: string }; geometry?: { coordinates?: [number, number][] } }[] } | null;
       if (dead()) return () => {};
       if (roads) {
-        if (!map.getPane("roadsPane")) {
-          const parent = map.getPane("overlayPane") ?? map.getPane("rotatePane") ?? map.getContainer();
-          map.createPane("roadsPane", parent);
-          const pane = map.getPane("roadsPane");
-          if (pane) pane.style.zIndex = "420";
-        }
-        const roadRenderer = L.canvas({ padding: 0.35, tolerance: 2 });
+        const roadRenderer = L.canvas({ pane: "roadsPane", padding: 0.35, tolerance: 2 });
         ctx.roadLines = L.geoJSON(roads as import("geojson").GeoJsonObject, {
           pane: "roadsPane",
           renderer: roadRenderer,
@@ -529,9 +539,6 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
         const snaps: { name: string; lat: number; lng: number; brg: number }[] = [];
         appendRoadSnaps(roads.features ?? [], snaps, drive.roads);
         drive.snaps = snaps;
-        const drawnNames = new Set(
-          (roads.features ?? []).map((f) => roadKey(String(f.properties?.name ?? ""))).filter(Boolean),
-        );
         const loaded = new Set<string>();
         const syncChunks = async () => {
           if (dead() || map.getZoom() < ROAD_CHUNK_ZOOM) return;
@@ -540,19 +547,12 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
           let keys = visibleChunkKeys(b.getWest(), b.getSouth(), b.getEast(), b.getNorth());
           const here = lastGps.current;
           if (here) keys.push(...headingPadKeys(here[0], here[1], headingRef.current));
-          keys = keys.filter((k) => index.has(k) && !loaded.has(k)).slice(0, 3);
+          keys = keys.filter((k) => index.has(k) && !loaded.has(k)).slice(0, 8);
           for (const key of keys) {
             loaded.add(key);
             const extra = await loadRoadChunk(key);
             if (dead() || !extra?.features?.length) continue;
-            const fresh = extra.features.filter((f) => {
-              const nm = roadKey(String(f.properties?.name ?? ""));
-              if (!nm) return true;
-              if (drawnNames.has(nm)) return false;
-              drawnNames.add(nm);
-              return true;
-            });
-            if (!fresh.length) continue;
+            const fresh = extra.features;
             L.geoJSON({ type: "FeatureCollection", features: fresh } as import("geojson").FeatureCollection, {
               pane: "roadsPane",
               renderer: roadRenderer,
@@ -607,15 +607,9 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
         })),
         ...unnamed,
       ];
-      if (!map.getPane("roadsPane")) {
-        const parent = map.getPane("overlayPane") ?? map.getPane("rotatePane") ?? map.getContainer();
-        map.createPane("roadsPane", parent);
-        const pane = map.getPane("roadsPane");
-        if (pane) pane.style.zIndex = "420";
-      }
       ctx.grading = L.geoJSON({ type: "FeatureCollection", features } as import("geojson").FeatureCollection, {
-        pane: "roadsPane",
-        renderer: L.canvas({ padding: 0.35, tolerance: 2 }),
+        pane: "gradingPane",
+        renderer: L.svg({ pane: "gradingPane", padding: 0.35 }),
         style: gradeStyle("hybrid"),
         onEachFeature: (feat, layer) => {
           const props = (feat.properties ?? {}) as Record<string, string | number>;
@@ -785,17 +779,13 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
     map.on("zoom", pushZoomPct);
     map.on("zoomend", pushZoomPct);
     pushZoomPct();
-    let roadBand = 2;
     map.on("zoomend", () => {
       hybridGrade.zoom = map.getZoom();
-      const band = hybridGrade.zoom < 11 ? 0 : hybridGrade.zoom < 13 ? 1 : 2;
-      if (band !== roadBand) {
-        roadBand = band;
-        styleRoadLayers();
-      }
+      styleRoadLayers();
       window.setTimeout(() => {
+        styleRoadLayers();
         userZoomRef.current = false;
-      }, 500);
+      }, 200);
     });
     } catch {
       if (!dead()) setError("Map failed to start — close the app and open it again");

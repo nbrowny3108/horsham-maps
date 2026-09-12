@@ -62,12 +62,12 @@ function ToolButton({
         onClick();
       }}
       className={cn(
-        "flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-md px-0.5 py-1",
+        "flex h-full min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-md px-0.5 py-0.5",
         active && tone === "grade" ? "bg-grade text-grade-fg" : active ? "bg-primary text-primary-fg" : "text-fg",
       )}
     >
       {children}
-      <span className="max-w-full truncate text-center text-xs font-medium leading-none">{shortLabel}</span>
+      <span className="max-w-full truncate text-center text-[10px] font-medium leading-none">{shortLabel}</span>
     </button>
   );
 }
@@ -200,7 +200,7 @@ mapEl,
   return (
     <div className="relative h-full overflow-hidden bg-bg text-fg">
       <div
-        className="absolute inset-x-0 top-0 overflow-hidden bottom-[110px]"
+        className="absolute inset-x-0 top-0 overflow-hidden bottom-[100px]"
       >
       <div ref={mapEl} className="absolute inset-0 z-0" />
 
@@ -366,88 +366,6 @@ mapEl,
       ) : null}
 
       </div>
-
-      {!layersOpen && !settingsOpen ? (
-      <div className="pointer-events-none fixed left-3 z-[10001] flex items-end gap-2 bottom-[118px]" aria-live="polite">
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-end gap-1 rounded-md bg-elevated/95 px-2.5 py-1.5 shadow-md">
-            <div>
-              <p className="font-display text-xl font-semibold leading-none tabular-nums">{tripKm.toFixed(3)}</p>
-              <p className="text-[10px] font-medium uppercase tracking-wide text-subtle">km trip</p>
-            </div>
-            <button
-              type="button"
-              className="pointer-events-auto ml-1 rounded-sm px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-primary"
-              onPointerDown={(e) => {
-                e.stopPropagation();
-              }}
-              onPointerUp={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                drive.current.resetTrip();
-                setTripKm(0);
-              }}
-            >
-              Reset
-            </button>
-          </div>
-          <div className="rounded-md bg-elevated/95 px-2.5 py-1.5 shadow-md">
-            <p className="font-display text-2xl font-semibold leading-none tabular-nums">{speedKmh == null ? "—" : Math.round(speedKmh)}</p>
-            <p className="text-[10px] font-medium uppercase tracking-wide text-subtle">km/h</p>
-            {headingMode === "heading" ? (
-              <p className="mt-0.5 text-[10px] font-medium text-muted">
-                {compassLive ? `${Math.round(heading)}° heading` : "Tap once for compass"}
-              </p>
-            ) : null}
-            {gpsLabel ? <p className="mt-0.5 text-[10px] tabular-nums text-muted">{gpsLabel}</p> : <p className="mt-0.5 text-[10px] text-muted">sats —</p>}
-          </div>
-        </div>
-        {currentRoad ? (
-          <div className="max-w-[13rem] rounded-md bg-elevated/95 px-2.5 py-1.5 shadow-md">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-subtle">On</p>
-            <p className="truncate text-sm font-semibold leading-tight">{currentRoad}</p>
-            {nextRoad ? (
-              <>
-                <p className="mt-1 text-[10px] font-medium uppercase tracking-wide text-subtle">Next</p>
-                <p className="truncate text-sm font-semibold leading-tight">{nextRoad}</p>
-              </>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-      ) : null}
-
-      {!layersOpen && !settingsOpen ? (
-        <div className="pointer-events-auto fixed right-3 z-[10025] bottom-[calc(118px+env(safe-area-inset-bottom,0px))] flex flex-col overflow-hidden rounded-md bg-elevated shadow-md">
-          <p className="px-1 py-1 text-center text-[11px] font-semibold tabular-nums leading-none text-fg" aria-live="polite">
-            {zoomPct}%
-          </p>
-          <button
-            type="button"
-            aria-label="Zoom in"
-            className="flex size-12 items-center justify-center border-t border-border text-2xl font-semibold leading-none"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              nudgeZoom(ZOOM_STEP_PCT);
-            }}
-          >
-            +
-          </button>
-          <button
-            type="button"
-            aria-label="Zoom out"
-            className="flex size-12 items-center justify-center border-t border-border text-2xl font-semibold leading-none"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              nudgeZoom(-ZOOM_STEP_PCT);
-            }}
-          >
-            −
-          </button>
-        </div>
-      ) : null}
 
       <footer
         ref={footerEl}
@@ -752,7 +670,69 @@ mapEl,
             </div>
           </div>
         ) : null}
-        <nav className="grid h-[90px] grid-cols-6 gap-0 px-1" aria-label="Map tools">
+        {!layersOpen && !settingsOpen ? (
+          <div className="grid h-[50px] grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-1.5 border-b border-border px-2" aria-live="polite">
+            <div className="min-w-[4.5rem]">
+              <p className="text-[9px] font-medium uppercase tracking-wide text-subtle">Trip</p>
+              <div className="flex items-baseline gap-1">
+                <p className="font-display text-sm font-semibold leading-none tabular-nums">{tripKm.toFixed(3)}</p>
+                <button
+                  type="button"
+                  className="text-[9px] font-semibold uppercase tracking-wide text-primary"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    drive.current.resetTrip();
+                    setTripKm(0);
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+              <p className="text-[9px] tabular-nums text-muted">
+                {speedKmh == null ? "—" : Math.round(speedKmh)} km/h
+                {headingMode === "heading" && compassLive ? ` · ${Math.round(heading)}°` : ""}
+              </p>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[9px] font-medium uppercase tracking-wide text-subtle">On</p>
+              <p className="truncate text-xs font-semibold leading-tight">{currentRoad || "—"}</p>
+              {gpsLabel ? <p className="truncate text-[9px] tabular-nums text-muted">{gpsLabel}</p> : null}
+            </div>
+            <div className="min-w-0">
+              <p className="text-[9px] font-medium uppercase tracking-wide text-subtle">Ahead</p>
+              <p className="truncate text-xs font-semibold leading-tight">{nextRoad || "—"}</p>
+            </div>
+            <div className="flex items-center overflow-hidden rounded-sm bg-bg">
+              <button
+                type="button"
+                aria-label="Zoom out"
+                className="flex size-8 items-center justify-center text-lg font-semibold leading-none"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  nudgeZoom(-ZOOM_STEP_PCT);
+                }}
+              >
+                −
+              </button>
+              <p className="w-8 text-center text-[11px] font-semibold tabular-nums leading-none">{zoomPct}%</p>
+              <button
+                type="button"
+                aria-label="Zoom in"
+                className="flex size-8 items-center justify-center text-lg font-semibold leading-none"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  nudgeZoom(ZOOM_STEP_PCT);
+                }}
+              >
+                +
+              </button>
+            </div>
+          </div>
+        ) : null}
+        <nav className="grid h-[50px] grid-cols-6 gap-0 px-1" aria-label="Map tools">
           <ToolButton label="Drop pin" shortLabel="Pin" active={pinAim} onClick={() => void dropAtCenter()}>
             <MapPin className="size-4" />
           </ToolButton>
@@ -764,7 +744,19 @@ mapEl,
           >
             <Navigation2 className="size-4" />
           </ToolButton>
-          <ToolButton label="HRCC gravel grading" shortLabel="Grading" active={showGrading} tone="grade" onClick={() => setShowGrading((on: boolean) => !on)}>
+          <ToolButton
+            label="HRCC gravel grading"
+            shortLabel="Grading"
+            active={showGrading}
+            tone="grade"
+            onClick={() => {
+              setShowGrading((on: boolean) => {
+                const next = !on;
+                if (next) setShowMapData(true);
+                return next;
+              });
+            }}
+          >
             <Waypoints className="size-4" />
           </ToolButton>
           <ToolButton
