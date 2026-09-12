@@ -133,6 +133,7 @@ export default defineConfig(({ command }) => ({
     host: "0.0.0.0",
     port: 8080,
     strictPort: true,
+    allowedHosts: [".trycloudflare.com"],
   },
   resolve: { tsconfigPaths: true },
   plugins: [

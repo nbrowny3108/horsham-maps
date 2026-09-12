@@ -88,11 +88,12 @@ export function startGpsWatch(onFix: (fix: GpsFix) => void, onDenied: (message: 
     return () => {};
   }
 
-  navigator.geolocation.getCurrentPosition(apply, fail, { enableHighAccuracy: true, maximumAge: 8_000, timeout: 12_000 });
+  navigator.geolocation.getCurrentPosition(apply, () => {}, { enableHighAccuracy: false, maximumAge: 60_000, timeout: 4_000 });
+  navigator.geolocation.getCurrentPosition(apply, fail, { enableHighAccuracy: true, maximumAge: 0, timeout: 12_000 });
   watches.push(
     navigator.geolocation.watchPosition(apply, fail, {
       enableHighAccuracy: true,
-      maximumAge: 700,
+      maximumAge: 500,
       timeout: 20_000,
     }),
   );

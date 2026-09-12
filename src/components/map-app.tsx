@@ -206,21 +206,38 @@ export function MapApp() {
     setZoomPct(next);
   }
 
+  function restyleCanvasLayer(layer?: GeoJSON) {
+    if (!layer) return;
+    const style = roadLineStyle("hybrid");
+    layer.setStyle(style);
+    layer.eachLayer((child) => {
+      const path = child as {
+        _project?: () => void;
+        _update?: () => void;
+        redraw?: () => void;
+        _renderer?: { _update?: () => void };
+      };
+      path._project?.();
+      path._update?.();
+      path.redraw?.();
+      path._renderer?._update?.();
+    });
+  }
+
   function styleRoadLayers() {
     const ctx = handle.current;
     if (!ctx) return;
-    const style = roadLineStyle("hybrid");
-    ctx.roadLines?.setStyle(style);
+    restyleCanvasLayer(ctx.roadLines);
     ctx.roadChunks?.eachLayer((layer) => {
-      (layer as GeoJSON).setStyle(style);
+      restyleCanvasLayer(layer as GeoJSON);
     });
   }
 
   function applyOverlays() {
     const ctx = handle.current;
     if (!ctx) return;
-    const dataOn = showMapData;
-    const gradeOn = dataOn && showGrading;
+    const roadsOn = showMapData || showGrading;
+    const gradeOn = showGrading;
     hybridGrade.show = gradeOn;
     styleRoadLayers();
     ctx.grading?.setStyle(gradeStyle("hybrid"));
@@ -229,8 +246,8 @@ export function MapApp() {
       if (on && !ctx.map.hasLayer(layer)) layer.addTo(ctx.map);
       if (!on && ctx.map.hasLayer(layer)) ctx.map.removeLayer(layer);
     };
-    showLayer(ctx.roadLines, dataOn);
-    showLayer(ctx.roadChunks, dataOn);
+    showLayer(ctx.roadLines, roadsOn);
+    showLayer(ctx.roadChunks, roadsOn);
     showLayer(ctx.grading, gradeOn);
     showLayer(ctx.places, showPlacesRef.current);
   }
@@ -691,6 +708,7 @@ export function MapApp() {
       ctx.pin = ctx.L.marker([next.lat, next.lng]).addTo(ctx.map);
     }
     closeSearch();
+    beginGps();
   }
 
   async function dropAtCenter() {
@@ -739,6 +757,11 @@ export function MapApp() {
   }
 
   async function enableHeadingUp() {
+    if (headingModeRef.current === "heading") {
+      setHeadingMode("north");
+      applyMapBearing(0);
+      return;
+    }
     await startDriving();
   }
 
