@@ -11,13 +11,14 @@ import {
   sameRoadName,
   ZOOM_MAX,
   updateShireFitZoom,
+  zoomForSpeed,
   zoomPercent,
 } from "@/lib/maps/style";
 import { prefetchAround, TILE_LAYER_OPTS } from "@/lib/maps/tile-cache";
 import { reverseGeocode } from "@/lib/maps/places";
 import { loadArterials } from "@/lib/maps/routing";
 import { allMapData, loadGradingJson, loadJunctionsJson, loadLabelsJson, loadPlacesJson, mapAssets } from "@/lib/maps/preload";
-import { loadLastView, saveLastView } from "@/lib/maps/storage";
+import { loadAutoZoom, loadLastView, saveLastView } from "@/lib/maps/storage";
 import { snapCurrentRoad } from "@/lib/maps/snap";
 import { appendRoadSnaps, headingPadKeys, loadRoadChunk, ROAD_CHUNK_ZOOM, roadChunkIndex, visibleChunkKeys } from "@/lib/maps/road-tiles";
 import {
@@ -138,7 +139,12 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
 
     const lastView = loadLastView();
     const startLatLng: [number, number] = lastView ? [lastView.lat, lastView.lng] : HORSHAM_CENTER;
-    const startZoom = lastView && lastView.zoom >= 6 && lastView.zoom <= ZOOM_MAX ? lastView.zoom : 16;
+    // Auto zoom on by default — open at parked auto band
+    const startZoom = loadAutoZoom()
+      ? zoomForSpeed(0)
+      : lastView && lastView.zoom >= 6 && lastView.zoom <= ZOOM_MAX
+        ? lastView.zoom
+        : 16;
 
     const map = L.map(mapEl, {
       center: startLatLng,
