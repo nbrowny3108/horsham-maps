@@ -189,7 +189,7 @@ export class DriveEngine {
     if (!hooks?.headingUp() || !map || !Number.isFinite(this.heading)) return;
     const deg = toLeafletBearing(this.heading);
     const delta = Math.abs(((deg - this.lastBearing + 540) % 360) - 180);
-    const dead = this.speed < 2.2 ? 6 : 0.85;
+    const dead = this.speed < 2.2 ? 6 : 1.5;
     if (delta < dead) return;
     this.lastBearing = deg;
     if (hooks.canRotate() && map.setBearing) {

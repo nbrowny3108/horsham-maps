@@ -142,7 +142,7 @@ export function MapApp() {
   const [libraryBusy, setLibraryBusy] = useState<string | null>(null);
   const [offlineAt, setOfflineAt] = useState<number | null>(() => loadOfflineAt());
   const [needStart, setNeedStart] = useState(false);
-  const [zoomPct, setZoomPct] = useState(80);
+  const [zoomPct, setZoomPct] = useState(90);
   const [autoZoom, setAutoZoom] = useState(() => loadAutoZoom());
   const [speedZoom, setSpeedZoomState] = useState<SpeedZoomSettings>(() => {
     const next = loadSpeedZoom();
