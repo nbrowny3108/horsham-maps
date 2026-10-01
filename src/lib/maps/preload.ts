@@ -14,6 +14,7 @@ export const mapAssets = browser
   ? {
       leaflet: loadLeaflet().catch(async () => asFallbackLeaflet()),
       roads: loadJson("/data/roads-major.geojson"),
+      sealed: loadJson("/data/sealed-roads.geojson"),
       boundary: loadJson("/data/hrcc-boundary.geojson"),
     }
   : null;
@@ -25,13 +26,14 @@ async function asFallbackLeaflet() {
 
 export async function allMapData() {
   if (!mapAssets) {
-    return { roads: null, boundary: null };
+    return { roads: null, boundary: null, sealed: null };
   }
-  const [roads, boundary] = await Promise.all([
+  const [roads, boundary, sealed] = await Promise.all([
     mapAssets.roads.catch(() => null),
     mapAssets.boundary.catch(() => null),
+    mapAssets.sealed.catch(() => null),
   ]);
-  return { roads, boundary };
+  return { roads, boundary, sealed };
 }
 
 export function loadLabelsJson() {

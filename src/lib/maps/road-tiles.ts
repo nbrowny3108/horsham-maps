@@ -5,9 +5,30 @@ export const ROAD_CHUNK_ZOOM = 13;
 const CELL = 0.1;
 
 type RoadFeat = {
-  properties?: { name?: string; highway?: string; class?: number };
+  properties?: { name?: string; highway?: string; class?: number; surf?: number };
   geometry?: { coordinates?: [number, number][] };
 };
+
+export function hasSealedOverlay(sealed: { features?: unknown[] } | null | undefined): boolean {
+  return Array.isArray(sealed?.features) && sealed.features.length > 0;
+}
+
+/** Vicmap sealed lines replace OSM surf===0. Gravel (surf 1 and 2) stays in the earth overlay. */
+export function overlayRoadFeatures<T extends { properties?: { surf?: number } }>(
+  osm: { features?: T[] } | null | undefined,
+  sealed: { features?: T[] } | null | undefined,
+): T[] {
+  const sealedFeats = sealed?.features ?? [];
+  const osmFeats = osm?.features ?? [];
+  if (!sealedFeats.length) return osmFeats;
+  return [...sealedFeats, ...osmFeats.filter((f) => Number(f.properties?.surf ?? 0) !== 0)];
+}
+
+/** Chunk packs still contain OSM sealed copies. Skip those once Vicmap is drawn. */
+export function minorRoadsToDraw<T extends { properties?: { surf?: number } }>(features: T[], sealedActive: boolean): T[] {
+  if (!sealedActive) return features;
+  return features.filter((f) => Number(f.properties?.surf ?? 0) !== 0);
+}
 
 const inflight = new Map<string, Promise<{ type: string; features: RoadFeat[] } | null>>();
 let indexKeys: Set<string> | null = null;

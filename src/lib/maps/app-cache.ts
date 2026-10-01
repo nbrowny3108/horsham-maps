@@ -59,6 +59,7 @@ async function dataUrls(): Promise<string[]> {
     "/data/junctions.geojson",
     "/data/vic-arterials.geojson",
     "/data/roads-major.geojson",
+    "/data/sealed-roads.geojson",
     "/data/roads/index.json",
     "/api/grading",
   ];

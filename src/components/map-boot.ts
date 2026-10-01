@@ -20,7 +20,7 @@ import { loadArterials } from "@/lib/maps/routing";
 import { allMapData, loadGradingJson, loadJunctionsJson, loadLabelsJson, loadPlacesJson, mapAssets } from "@/lib/maps/preload";
 import { loadAutoZoom, loadLastView, saveLastView } from "@/lib/maps/storage";
 import { snapCurrentRoad } from "@/lib/maps/snap";
-import { appendRoadSnaps, headingPadKeys, loadRoadChunk, ROAD_CHUNK_ZOOM, roadChunkIndex, visibleChunkKeys } from "@/lib/maps/road-tiles";
+import { appendRoadSnaps, hasSealedOverlay, headingPadKeys, loadRoadChunk, minorRoadsToDraw, overlayRoadFeatures, ROAD_CHUNK_ZOOM, roadChunkIndex, visibleChunkKeys } from "@/lib/maps/road-tiles";
 import {
   HORSHAM_CENTER,
   MAP_COLORS,
@@ -47,6 +47,7 @@ export type MapHandle = {
   boundary?: GeoJSON;
   grading?: GeoJSON;
   roadLines?: GeoJSON;
+  sealedLines?: GeoJSON;
   roadChunks?: LayerGroup;
   ring: number[][] | null;
   pin?: Marker;
@@ -182,6 +183,12 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
       map.createPane("gradingPane", rotateParent);
       const gradingPane = map.getPane("gradingPane");
       if (gradingPane) gradingPane.style.zIndex = "440";
+    }
+    if (!map.getPane("sealedPane")) {
+      map.createPane("sealedPane", rotateParent);
+      const sealedPane = map.getPane("sealedPane");
+      // Above pink grading so a sealed centreline stays visible where the two coincide.
+      if (sealedPane) sealedPane.style.zIndex = "460";
     }
 
     if (dead()) {
@@ -530,21 +537,38 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
     paintLabels();
 
     try {
-      const roads = packed.roads as { features?: { properties?: { name?: string; highway?: string }; geometry?: { coordinates?: [number, number][] } }[] } | null;
+      const roads = packed.roads as { features?: { properties?: { name?: string; highway?: string; surf?: number }; geometry?: { coordinates?: [number, number][] } }[] } | null;
+      const sealed = (packed as { sealed?: { features?: { properties?: { surf?: number } }[] } | null }).sealed ?? null;
       if (dead()) return () => {};
-      if (roads) {
+      const sealedActive = hasSealedOverlay(sealed);
+      const features = overlayRoadFeatures(roads, sealed);
+      if (features.length) {
         const roadRenderer = L.canvas({ pane: "roadsPane", padding: 0.35, tolerance: 2 });
         hybridGrade.zoom = map.getZoom();
-        ctx.roadLines = L.geoJSON(roads as import("geojson").GeoJsonObject, {
-          pane: "roadsPane",
-          renderer: roadRenderer,
-          smoothFactor: 1.2,
-          style: roadLineStyle("hybrid"),
-          interactive: false,
-        } as import("leaflet").GeoJSONOptions).addTo(map);
+        const unsealed = sealedActive ? features.filter((f) => Number(f.properties?.surf ?? 0) !== 0) : features;
+        const sealedFeats = sealedActive ? features.filter((f) => Number(f.properties?.surf ?? 0) === 0) : [];
+        if (unsealed.length) {
+          ctx.roadLines = L.geoJSON({ type: "FeatureCollection", features: unsealed } as import("geojson").FeatureCollection, {
+            pane: "roadsPane",
+            renderer: roadRenderer,
+            smoothFactor: 1.2,
+            style: roadLineStyle("hybrid"),
+            interactive: false,
+          } as import("leaflet").GeoJSONOptions).addTo(map);
+        }
+        if (sealedFeats.length) {
+          const sealedRenderer = L.canvas({ pane: "sealedPane", padding: 0.5, tolerance: 2 });
+          ctx.sealedLines = L.geoJSON({ type: "FeatureCollection", features: sealedFeats } as import("geojson").FeatureCollection, {
+            pane: "sealedPane",
+            renderer: sealedRenderer,
+            smoothFactor: 1.2,
+            style: roadLineStyle("hybrid"),
+            interactive: false,
+          } as import("leaflet").GeoJSONOptions).addTo(map);
+        }
         ctx.roadChunks = L.layerGroup().addTo(map);
         const snaps: { name: string; lat: number; lng: number; brg: number }[] = [];
-        appendRoadSnaps(roads.features ?? [], snaps, drive.roads);
+        appendRoadSnaps(features, snaps, drive.roads);
         drive.snaps = snaps;
         const loaded = new Set<string>();
         const syncChunks = async () => {
@@ -559,7 +583,8 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
             loaded.add(key);
             const extra = await loadRoadChunk(key);
             if (dead() || !extra?.features?.length) continue;
-            const fresh = extra.features;
+            const fresh = minorRoadsToDraw(extra.features, sealedActive);
+            if (!fresh.length) continue;
             L.geoJSON({ type: "FeatureCollection", features: fresh } as import("geojson").FeatureCollection, {
               pane: "roadsPane",
               renderer: roadRenderer,
