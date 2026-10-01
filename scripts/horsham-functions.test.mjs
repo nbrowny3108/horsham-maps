@@ -94,6 +94,52 @@ test("style: names and grading colours", () => {
   assert.match(style.gpsIconHtml(90, true, true), /gps-mark-cone/);
 });
 
+test("style: sealed bitumen stays red at every zoom; unsealed does not", () => {
+  const prevZoom = style.hybridGrade.zoom;
+  const prevShow = style.hybridGrade.show;
+  const dirt = style.roadKey("Dirt Track");
+  const hadDirt = style.hybridGrade.names.get(dirt);
+  style.hybridGrade.show = true;
+  style.hybridGrade.names.set(dirt, "26-27 Grading Programme");
+  try {
+    for (const z of [6, 8, 10.5, 12, 13, 17, 21]) {
+      style.hybridGrade.zoom = z;
+      for (const base of ["satellite", "hybrid"]) {
+        for (const cls of [1, 4, 5]) {
+          const sealed = style.roadLineStyle(base)({ properties: { class: cls, surf: 0, name: "Natimuk Rd" } });
+          assert.equal(sealed.color, types.MAP_COLORS.roadHybrid, `${base} cls${cls} z${z}`);
+          assert.equal(sealed.opacity, 1);
+          assert.equal(sealed.weight, 2.4);
+        }
+      }
+      const gravel = style.roadLineStyle("hybrid")({ properties: { class: 4, surf: 1, name: "Side Track" } });
+      const earth = style.roadLineStyle("satellite")({ properties: { class: 5, surf: 2, name: "Farm Track" } });
+      if (z < 11) {
+        assert.equal(gravel.opacity, 0);
+        assert.equal(gravel.weight, 0);
+        assert.equal(earth.opacity, 0);
+      } else if (z < 13) {
+        assert.equal(gravel.color, types.MAP_COLORS.roadEarth);
+        assert.notEqual(gravel.color, types.MAP_COLORS.roadHybrid);
+        assert.equal(earth.opacity, 0);
+      } else {
+        assert.equal(gravel.color, types.MAP_COLORS.roadEarth);
+        assert.equal(earth.color, types.MAP_COLORS.roadSat);
+        assert.notEqual(earth.color, types.MAP_COLORS.roadHybrid);
+      }
+      const gradedSealed = style.roadLineStyle("hybrid")({ properties: { class: 4, surf: 0, name: "Dirt Track" } });
+      assert.equal(gradedSealed.color, types.MAP_COLORS.roadHybrid, `graded sealed z${z}`);
+      const gradedGravel = style.roadLineStyle("hybrid")({ properties: { class: 4, surf: 1, name: "Dirt Track" } });
+      if (z >= 11) assert.equal(gradedGravel.opacity, 0);
+    }
+  } finally {
+    style.hybridGrade.zoom = prevZoom;
+    style.hybridGrade.show = prevShow;
+    if (hadDirt == null) style.hybridGrade.names.delete(dirt);
+    else style.hybridGrade.names.set(dirt, hadDirt);
+  }
+});
+
 test("snap: 15 m offset snaps onto Riverside Rd", () => {
   const index = new snap.RoadIndex();
   const lat = -36.7044;

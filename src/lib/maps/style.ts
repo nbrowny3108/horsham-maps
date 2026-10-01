@@ -199,29 +199,39 @@ export function gradeStyle(base: BaseLayer) {
   };
 }
 
+const roundLine = { lineCap: "round" as const, lineJoin: "round" as const };
+
+/** Sealed bitumen overlay: same red on satellite and hybrid, every zoom. */
+function bitumenLine() {
+  return { color: MAP_COLORS.roadHybrid, weight: 2.4, opacity: 1, ...roundLine };
+}
+
 export function roadLineStyle(base: BaseLayer) {
   return (feat?: import("geojson").Feature) => {
     const props = (feat?.properties ?? {}) as { class?: number; surf?: number; name?: string };
     const cls = Number(props.class ?? 5);
     const surf = Number(props.surf ?? 0);
+    const sealed = surf === 0;
     const z = hybridGrade.zoom;
-    if (z < 11 && cls >= 4) return { opacity: 0, weight: 0 };
-    if (z < 13 && cls >= 5) return { opacity: 0, weight: 0 };
+    // Minor unsealed/gravel drop out when zoomed out. Sealed stays drawn at every zoom.
+    if (!sealed && z < 11 && cls >= 4) return { opacity: 0, weight: 0 };
+    if (!sealed && z < 13 && cls >= 5) return { opacity: 0, weight: 0 };
     if (base === "satellite") {
-      return { color: MAP_COLORS.roadSat, weight: cls <= 2 ? 1.5 : cls <= 4 ? 1.05 : 0.7, opacity: 0.52, lineCap: "round" as const, lineJoin: "round" as const };
+      if (sealed) return bitumenLine();
+      return { color: MAP_COLORS.roadSat, weight: cls <= 2 ? 1.5 : cls <= 4 ? 1.05 : 0.7, opacity: 0.52, ...roundLine };
     }
     if (base === "hybrid") {
       const name = String(props.name ?? "");
       const prog = name ? hybridGrade.names.get(roadKey(name)) : undefined;
       // Hide unsealed under pink grading; sealed (surf===0) always stays drawn.
-      if (hybridGrade.show && prog && surf !== 0) {
+      if (hybridGrade.show && prog && !sealed) {
         return { opacity: 0, weight: 0 };
       }
-      if (surf === 2) return { color: MAP_COLORS.roadEarth, weight: 1.4, opacity: 1, lineCap: "round" as const, lineJoin: "round" as const };
-      if (surf === 1) return { color: MAP_COLORS.roadEarth, weight: 1.7, opacity: 1, lineCap: "round" as const, lineJoin: "round" as const };
-      return { color: MAP_COLORS.roadHybrid, weight: 2.4, opacity: 1, lineCap: "round" as const, lineJoin: "round" as const };
+      if (surf === 2) return { color: MAP_COLORS.roadEarth, weight: 1.4, opacity: 1, ...roundLine };
+      if (surf === 1) return { color: MAP_COLORS.roadEarth, weight: 1.7, opacity: 1, ...roundLine };
+      return bitumenLine();
     }
-    return { color: MAP_COLORS.road, weight: cls <= 2 ? 2.1 : cls <= 4 ? 1.55 : 1.15, opacity: 0.82, lineCap: "round" as const, lineJoin: "round" as const };
+    return { color: MAP_COLORS.road, weight: cls <= 2 ? 2.1 : cls <= 4 ? 1.55 : 1.15, opacity: 0.82, ...roundLine };
   };
 }
 
