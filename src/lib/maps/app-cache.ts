@@ -34,6 +34,55 @@ export async function cachedJson(url: string): Promise<Json> {
   return res.json() as Promise<Json>;
 }
 
+/**
+ * Cache-first read that does not re-download on startup.
+ * A low-priority refresh runs later so the first tile wave keeps the radio.
+ */
+export async function cachedJsonStale(url: string): Promise<Json> {
+  if (typeof caches !== "undefined") {
+    try {
+      const cache = await caches.open(DATA_CACHE);
+      const hit =
+        (await cache.match(url)) ||
+        (typeof location !== "undefined"
+          ? await cache.match(new URL(url, location.origin).href)
+          : undefined);
+      if (hit) {
+        if (typeof window !== "undefined") revalidateLater(url);
+        return hit.json() as Promise<Json>;
+      }
+    } catch {
+      /* network path */
+    }
+  }
+  const res = await fetch(url, { priority: "low" } as RequestInit);
+  if (!res.ok) throw new Error(`${url} ${res.status}`);
+  if (typeof caches !== "undefined") {
+    try {
+      const cache = await caches.open(DATA_CACHE);
+      void cache.put(url, res.clone());
+    } catch {
+      /* skip */
+    }
+  }
+  return res.json() as Promise<Json>;
+}
+
+function revalidateLater(url: string): void {
+  window.setTimeout(() => {
+    void fetch(url, { priority: "low" } as RequestInit)
+      .then(async (res) => {
+        if (!res.ok || typeof caches === "undefined") return;
+        // The service worker refreshes its own copy. Writing that stale response
+        // back here can clobber the newer body.
+        if (navigator.serviceWorker?.controller) return;
+        const cache = await caches.open(DATA_CACHE);
+        await cache.put(url, res.clone());
+      })
+      .catch(() => {});
+  }, 8000);
+}
+
 async function putIfMissing(cache: Cache, url: string): Promise<void> {
   try {
     if (await cache.match(url)) return;

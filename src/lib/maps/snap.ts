@@ -34,27 +34,67 @@ function boxAround(lng: number, lat: number, metres: number) {
   };
 }
 
+function segmentsOf(name: string, coords: [number, number][]): Seg[] {
+  const items: Seg[] = [];
+  if (!name || coords.length < 2) return items;
+  for (let i = 1; i < coords.length; i++) {
+    const a = coords[i - 1];
+    const b = coords[i];
+    if (!a || !b) continue;
+    items.push({
+      minX: Math.min(a[0], b[0]),
+      minY: Math.min(a[1], b[1]),
+      maxX: Math.max(a[0], b[0]),
+      maxY: Math.max(a[1], b[1]),
+      name,
+      a,
+      b,
+    });
+  }
+  return items;
+}
+
 export class RoadIndex {
   private tree = new RBush<Seg>(9);
 
   addLine(name: string, coords: [number, number][]): void {
-    if (!name || coords.length < 2) return;
-    const items: Seg[] = [];
-    for (let i = 1; i < coords.length; i++) {
-      const a = coords[i - 1];
-      const b = coords[i];
-      if (!a || !b) continue;
-      items.push({
-        minX: Math.min(a[0], b[0]),
-        minY: Math.min(a[1], b[1]),
-        maxX: Math.max(a[0], b[0]),
-        maxY: Math.max(a[1], b[1]),
-        name,
-        a,
-        b,
-      });
-    }
+    const items = segmentsOf(name, coords);
     if (items.length) this.tree.load(items);
+  }
+
+  /** One tree load for the whole sealed network, instead of a load per segment. */
+  loadSegments(lines: { name: string; coords: [number, number][] }[]): void {
+    const items: Seg[] = [];
+    for (const line of lines) items.push(...segmentsOf(line.name, line.coords));
+    if (items.length) this.tree.load(items);
+  }
+
+  bearingNear(lat: number, lng: number, maxM: number, name?: string): number | null {
+    const hits = this.tree.search(boxAround(lng, lat, maxM));
+    let best = Infinity;
+    let brg = 0;
+    const here: [number, number] = [lng, lat];
+    for (const s of hits) {
+      if (name && !sameRoadName(s.name, name)) continue;
+      const metres = ruler.pointOnLine([s.a, s.b], here).dist;
+      if (metres > maxM || metres >= best) continue;
+      best = metres;
+      brg = ruler.bearing(s.a, s.b);
+    }
+    if (best === Infinity) return null;
+    return (brg + 360) % 360;
+  }
+
+  closest(lat: number, lng: number, maxM: number): { name: string; metres: number } | null {
+    const hits = this.tree.search(boxAround(lng, lat, maxM));
+    let best: { name: string; metres: number } | null = null;
+    const here: [number, number] = [lng, lat];
+    for (const s of hits) {
+      const metres = ruler.pointOnLine([s.a, s.b], here).dist;
+      if (metres > maxM) continue;
+      if (!best || metres < best.metres) best = { name: s.name, metres };
+    }
+    return best;
   }
 
   nearest(lat: number, lng: number, heading: number, maxM: number): { lat: number; lng: number; name: string; metres: number } | null {

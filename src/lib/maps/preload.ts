@@ -1,4 +1,4 @@
-import { cachedJson } from "./app-cache";
+import { cachedJson, cachedJsonStale } from "./app-cache";
 import { loadLeaflet } from "./leaflet";
 
 type Json = Record<string, unknown>;
@@ -14,26 +14,30 @@ export const mapAssets = browser
   ? {
       leaflet: loadLeaflet().catch(async () => asFallbackLeaflet()),
       roads: loadJson("/data/roads-major.geojson"),
-      sealed: loadJson("/data/sealed-roads.geojson"),
       boundary: loadJson("/data/hrcc-boundary.geojson"),
     }
   : null;
 
+/** Vicmap sealed is ~73KB gzipped. Keep it off the tile startup burst. */
+export function loadSealedJson(): Promise<Json> {
+  return cachedJsonStale("/data/sealed-roads.geojson");
+}
+
 async function asFallbackLeaflet() {
   const mod = await import("leaflet");
-  return ((mod as { default?: typeof import("leaflet") }).default ?? mod) as typeof import("leaflet");
+  return ((mod as { default?: typeof import("leaflet") }).default ??
+    mod) as typeof import("leaflet");
 }
 
 export async function allMapData() {
   if (!mapAssets) {
-    return { roads: null, boundary: null, sealed: null };
+    return { roads: null, boundary: null };
   }
-  const [roads, boundary, sealed] = await Promise.all([
+  const [roads, boundary] = await Promise.all([
     mapAssets.roads.catch(() => null),
     mapAssets.boundary.catch(() => null),
-    mapAssets.sealed.catch(() => null),
   ]);
-  return { roads, boundary, sealed };
+  return { roads, boundary };
 }
 
 export function loadLabelsJson() {
