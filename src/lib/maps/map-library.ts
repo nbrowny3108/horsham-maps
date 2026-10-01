@@ -15,6 +15,7 @@ export type LibraryFile = {
 
 const DATA_ITEMS: { id: string; name: string; group: LibraryFile["group"]; url: string; filename: string }[] = [
   { id: "roads-major", name: "Main roads", group: "Roads", url: "/data/roads-major.geojson", filename: "horsham-main-roads.geojson" },
+  { id: "sealed", name: "Sealed roads", group: "Roads", url: "/data/sealed-roads.geojson", filename: "horsham-sealed-roads.geojson" },
   { id: "roads", name: "All roads", group: "Roads", url: "/data/roads.geojson", filename: "horsham-all-roads.geojson" },
   { id: "chunks", name: "Local road packs", group: "Roads", url: "/data/roads/index.json", filename: "horsham-road-packs.json" },
   { id: "grading", name: "HRCC grading programme", group: "Council", url: "/data/grading-programme.geojson", filename: "hrcc-grading.geojson" },

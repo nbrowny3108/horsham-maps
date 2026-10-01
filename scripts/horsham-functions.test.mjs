@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { createJiti } from "jiti";
 import "./horsham-test-shim.mjs";
@@ -279,4 +280,63 @@ test("local search: Plush H Rd finds Plush Hannans Road", () => {
   const hits = places.matchLocalHits("Plush H Rd", rows, [-36.7195, 142.1965]);
   assert.equal(hits[0]?.display_name.startsWith("Plush Hannans Road"), true);
   assert.ok(places.scoreLocalName("Plush H Rd", "Plush Hannans Road") > places.scoreLocalName("Plush H Rd", "Plushs Road"));
+});
+
+test("overlay: Vicmap sealed replaces OSM surf 0 and keeps gravel", () => {
+  const osm = {
+    features: [
+      { properties: { surf: 0, name: "Osm Bitumen" } },
+      { properties: { surf: 1, name: "Gravel" } },
+      { properties: { surf: 2, name: "Earth" } },
+    ],
+  };
+  const sealed = { features: [{ properties: { surf: 0, name: "Remlaw Road" } }] };
+  const merged = roads.overlayRoadFeatures(osm, sealed);
+  assert.deepEqual(
+    merged.map((f) => f.properties.name),
+    ["Remlaw Road", "Gravel", "Earth"],
+  );
+  assert.equal(roads.hasSealedOverlay(sealed), true);
+  assert.equal(roads.hasSealedOverlay({ features: [] }), false);
+  assert.equal(roads.overlayRoadFeatures(osm, null).length, 3);
+  const minors = roads.minorRoadsToDraw(
+    [{ properties: { surf: 0 } }, { properties: { surf: 1 } }, { properties: { surf: 2 } }],
+    true,
+  );
+  assert.equal(minors.length, 2);
+  assert.equal(roads.minorRoadsToDraw(osm.features, false).length, 3);
+});
+
+test("sealed roads: Vicmap seal covers Horsham gaps OSM left brown or unloaded", () => {
+  const data = JSON.parse(readFileSync(new URL("../public/data/sealed-roads.geojson", import.meta.url), "utf8"));
+  assert.ok(data.features.length > 3000, `only ${data.features.length} sealed features`);
+  assert.equal(data.source.includes("Vicmap Transport"), true);
+  const names = new Set();
+  for (const f of data.features) {
+    assert.equal(f.properties.surf, 0);
+    assert.equal(f.geometry.type, "LineString");
+    assert.ok(f.geometry.coordinates.length >= 2);
+    if (f.properties.name) names.add(f.properties.name);
+  }
+  assert.equal(names.has("Lilac Street"), true);
+  assert.equal(names.has("Remlaw Road"), true);
+  assert.equal(names.has("Plush Hannans Road"), true);
+  const km = (a, b) => (((b[1] - a[1]) * 111.32) ** 2 + ((b[0] - a[0]) * 89.2) ** 2) ** 0.5;
+  const gap = [142.164, -36.71345];
+  let best = Infinity;
+  for (const f of data.features) {
+    if (f.properties.name !== "Remlaw Road") continue;
+    const c = f.geometry.coordinates;
+    for (let i = 1; i < c.length; i++) {
+      const a = c[i - 1];
+      const b = c[i];
+      const dx = b[0] - a[0];
+      const dy = b[1] - a[1];
+      const len2 = dx * dx + dy * dy || 1;
+      let t = ((gap[0] - a[0]) * dx + (gap[1] - a[1]) * dy) / len2;
+      t = Math.max(0, Math.min(1, t));
+      best = Math.min(best, km(gap, [a[0] + dx * t, a[1] + dy * t]));
+    }
+  }
+  assert.ok(best < 0.04, `Remlaw sealed gap still ${best} km from Vicmap`);
 });

@@ -96,6 +96,7 @@ export async function buildOfflineUrls(_here?: [number, number] | null): Promise
     "/data/junctions.geojson",
     "/data/vic-arterials.geojson",
     "/data/roads-major.geojson",
+    "/data/sealed-roads.geojson",
     "/data/roads.geojson",
     "/data/roads/index.json",
     "/data/cache-manifest.json",

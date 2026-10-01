@@ -228,6 +228,7 @@ export function MapApp() {
     const ctx = handle.current;
     if (!ctx) return;
     restyleCanvasLayer(ctx.roadLines);
+    restyleCanvasLayer(ctx.sealedLines);
     ctx.roadChunks?.eachLayer((layer) => {
       restyleCanvasLayer(layer as GeoJSON);
     });
@@ -247,6 +248,7 @@ export function MapApp() {
       if (!on && ctx.map.hasLayer(layer)) ctx.map.removeLayer(layer);
     };
     showLayer(ctx.roadLines, roadsOn);
+    showLayer(ctx.sealedLines, roadsOn);
     showLayer(ctx.roadChunks, roadsOn);
     showLayer(ctx.grading, gradeOn);
     showLayer(ctx.places, showPlacesRef.current);
