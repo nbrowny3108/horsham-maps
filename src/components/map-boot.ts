@@ -534,6 +534,7 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
       if (dead()) return () => {};
       if (roads) {
         const roadRenderer = L.canvas({ pane: "roadsPane", padding: 0.35, tolerance: 2 });
+        hybridGrade.zoom = map.getZoom();
         ctx.roadLines = L.geoJSON(roads as import("geojson").GeoJsonObject, {
           pane: "roadsPane",
           renderer: roadRenderer,
