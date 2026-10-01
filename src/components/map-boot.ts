@@ -17,10 +17,10 @@ import {
 import { prefetchAround, TILE_LAYER_OPTS } from "@/lib/maps/tile-cache";
 import { reverseGeocode } from "@/lib/maps/places";
 import { loadArterials } from "@/lib/maps/routing";
-import { allMapData, loadGradingJson, loadJunctionsJson, loadLabelsJson, loadPlacesJson, mapAssets } from "@/lib/maps/preload";
+import { allMapData, loadGradingJson, loadJunctionsJson, loadLabelsJson, loadPlacesJson, loadSealedJson, mapAssets } from "@/lib/maps/preload";
 import { loadAutoZoom, loadLastView, saveLastView } from "@/lib/maps/storage";
 import { snapCurrentRoad } from "@/lib/maps/snap";
-import { appendRoadSnaps, hasSealedOverlay, headingPadKeys, loadRoadChunk, minorRoadsToDraw, overlayRoadFeatures, ROAD_CHUNK_ZOOM, roadChunkIndex, visibleChunkKeys } from "@/lib/maps/road-tiles";
+import { appendRoadSnaps, buildSealedIndex, hasSealedOverlay, headingPadKeys, indexRoadLines, loadRoadChunk, minorRoadsToDraw, ROAD_CHUNK_ZOOM, roadChunkIndex, sealedLinesTouching, visibleChunkKeys, type RoadFeat } from "@/lib/maps/road-tiles";
 import {
   HORSHAM_CENTER,
   MAP_COLORS,
@@ -222,6 +222,9 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
       }
     });
     satellite.addTo(map);
+    const sealedPromise = loadSealedJson()
+      .then((data) => data as { features?: RoadFeat[] } | null)
+      .catch(() => null);
     window.requestAnimationFrame(() => {
       map.invalidateSize({ animate: false });
       updateShireFitZoom(map);
@@ -330,6 +333,10 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
     };
 
     const snapBearing = (lat: number, lng: number, name: string) => {
+      const named = drive.roads.bearingNear(lat, lng, 250, name);
+      if (named != null) return named;
+      const any = drive.roads.bearingNear(lat, lng, 250);
+      if (any != null) return any;
       const key = roadKey(name);
       const nearest = (matchName: boolean) => {
         let best = 90;
@@ -344,8 +351,8 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
         }
         return { best, bestD };
       };
-      const named = nearest(true);
-      if (named.bestD < 0.25) return named.best;
+      const hit = nearest(true);
+      if (hit.bestD < 0.25) return hit.best;
       return nearest(false).best;
     };
 
@@ -537,70 +544,131 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
     paintLabels();
 
     try {
-      const roads = packed.roads as { features?: { properties?: { name?: string; highway?: string; surf?: number }; geometry?: { coordinates?: [number, number][] } }[] } | null;
-      const sealed = (packed as { sealed?: { features?: { properties?: { surf?: number } }[] } | null }).sealed ?? null;
+      const roads = packed.roads as { features?: RoadFeat[] } | null;
+      const osm = roads?.features ?? [];
+      const gravel = osm.filter((f) => Number(f.properties?.surf ?? 0) !== 0);
+      const osmSealed = osm.filter((f) => Number(f.properties?.surf ?? 0) === 0);
       if (dead()) return () => {};
-      const sealedActive = hasSealedOverlay(sealed);
-      const features = overlayRoadFeatures(roads, sealed);
-      if (features.length) {
-        const roadRenderer = L.canvas({ pane: "roadsPane", padding: 0.35, tolerance: 2 });
-        hybridGrade.zoom = map.getZoom();
-        const unsealed = sealedActive ? features.filter((f) => Number(f.properties?.surf ?? 0) !== 0) : features;
-        const sealedFeats = sealedActive ? features.filter((f) => Number(f.properties?.surf ?? 0) === 0) : [];
-        if (unsealed.length) {
-          ctx.roadLines = L.geoJSON({ type: "FeatureCollection", features: unsealed } as import("geojson").FeatureCollection, {
+      const roadRenderer = L.canvas({ pane: "roadsPane", padding: 0.35, tolerance: 2 });
+      hybridGrade.zoom = map.getZoom();
+      const lineOpts = {
+        pane: "roadsPane",
+        renderer: roadRenderer,
+        smoothFactor: 1.2,
+        style: roadLineStyle("hybrid"),
+        interactive: false,
+      } as import("leaflet").GeoJSONOptions;
+      if (gravel.length) {
+        ctx.roadLines = L.geoJSON({ type: "FeatureCollection", features: gravel } as import("geojson").FeatureCollection, lineOpts).addTo(map);
+        const snaps: { name: string; lat: number; lng: number; brg: number }[] = [];
+        appendRoadSnaps(gravel, snaps, drive.roads);
+        drive.snaps = snaps;
+      }
+      ctx.roadChunks = L.layerGroup().addTo(map);
+      const loaded = new Set<string>();
+      let sealedActive = false;
+      const syncChunks = async () => {
+        if (dead() || map.getZoom() < ROAD_CHUNK_ZOOM) return;
+        const b = map.getBounds();
+        const index = await roadChunkIndex();
+        let keys = visibleChunkKeys(b.getWest(), b.getSouth(), b.getEast(), b.getNorth());
+        const here = lastGps.current;
+        if (here) keys.push(...headingPadKeys(here[0], here[1], headingRef.current));
+        keys = keys.filter((k) => index.has(k) && !loaded.has(k)).slice(0, 8);
+        for (const key of keys) {
+          loaded.add(key);
+          const extra = await loadRoadChunk(key);
+          if (dead() || !extra?.features?.length) continue;
+          const fresh = minorRoadsToDraw(extra.features, sealedActive);
+          if (!fresh.length) continue;
+          L.geoJSON({ type: "FeatureCollection", features: fresh } as import("geojson").FeatureCollection, {
             pane: "roadsPane",
             renderer: roadRenderer,
             smoothFactor: 1.2,
             style: roadLineStyle("hybrid"),
             interactive: false,
-          } as import("leaflet").GeoJSONOptions).addTo(map);
+          } as import("leaflet").GeoJSONOptions).addTo(ctx.roadChunks!);
+          appendRoadSnaps(fresh, drive.snaps, drive.roads);
+          if (drive.snaps.length > 12_000) drive.snaps = drive.snaps.slice(-8_000);
         }
-        if (sealedFeats.length) {
-          const sealedRenderer = L.canvas({ pane: "sealedPane", padding: 0.5, tolerance: 2 });
-          ctx.sealedLines = L.geoJSON({ type: "FeatureCollection", features: sealedFeats } as import("geojson").FeatureCollection, {
-            pane: "sealedPane",
-            renderer: sealedRenderer,
-            smoothFactor: 1.2,
-            style: roadLineStyle("hybrid"),
-            interactive: false,
-          } as import("leaflet").GeoJSONOptions).addTo(map);
-        }
-        ctx.roadChunks = L.layerGroup().addTo(map);
-        const snaps: { name: string; lat: number; lng: number; brg: number }[] = [];
-        appendRoadSnaps(features, snaps, drive.roads);
-        drive.snaps = snaps;
-        const loaded = new Set<string>();
-        const syncChunks = async () => {
-          if (dead() || map.getZoom() < ROAD_CHUNK_ZOOM) return;
-          const b = map.getBounds();
-          const index = await roadChunkIndex();
-          let keys = visibleChunkKeys(b.getWest(), b.getSouth(), b.getEast(), b.getNorth());
-          const here = lastGps.current;
-          if (here) keys.push(...headingPadKeys(here[0], here[1], headingRef.current));
-          keys = keys.filter((k) => index.has(k) && !loaded.has(k)).slice(0, 8);
-          for (const key of keys) {
-            loaded.add(key);
-            const extra = await loadRoadChunk(key);
-            if (dead() || !extra?.features?.length) continue;
-            const fresh = minorRoadsToDraw(extra.features, sealedActive);
-            if (!fresh.length) continue;
-            L.geoJSON({ type: "FeatureCollection", features: fresh } as import("geojson").FeatureCollection, {
-              pane: "roadsPane",
-              renderer: roadRenderer,
-              smoothFactor: 1.2,
-              style: roadLineStyle("hybrid"),
-              interactive: false,
-            } as import("leaflet").GeoJSONOptions).addTo(ctx.roadChunks!);
-            appendRoadSnaps(fresh, drive.snaps, drive.roads);
-            if (drive.snaps.length > 12_000) drive.snaps = drive.snaps.slice(-8_000);
+      };
+      const attachOsmSealed = () => {
+        if (!osmSealed.length) return;
+        const fc = { type: "FeatureCollection", features: osmSealed } as import("geojson").FeatureCollection;
+        if (ctx.roadLines) ctx.roadLines.addData(fc);
+        else ctx.roadLines = L.geoJSON(fc, lineOpts).addTo(map);
+        appendRoadSnaps(osmSealed, drive.snaps, drive.roads);
+      };
+
+      const sealed = await sealedPromise;
+      if (dead()) return () => {};
+      if (hasSealedOverlay(sealed)) {
+        sealedActive = true;
+        const index = buildSealedIndex(sealed);
+        indexRoadLines(sealed?.features ?? [], drive.roads);
+        const sealedRenderer = L.canvas({ pane: "sealedPane", padding: 0.5, tolerance: 2 });
+        const sealedOpts = {
+          pane: "sealedPane",
+          renderer: sealedRenderer,
+          smoothFactor: 1.2,
+          style: roadLineStyle("hybrid"),
+          interactive: false,
+        } as import("leaflet").GeoJSONOptions;
+        let cover: import("leaflet").LatLngBounds | null = null;
+        let coverZoom = NaN;
+        let queued = false;
+        let sizeWaits = 0;
+        const syncSealed = () => {
+          if (dead()) return;
+          const size = map.getSize();
+          if (size.x < 20 || size.y < 20) {
+            if (sizeWaits++ < 8) window.requestAnimationFrame(syncSealed);
+            return;
           }
+          const z = map.getZoom();
+          const view = map.getBounds();
+          if (cover && coverZoom === z && cover.contains(view)) return;
+          const query = view.pad(0.8);
+          const coords = sealedLinesTouching(index, query.getWest(), query.getSouth(), query.getEast(), query.getNorth());
+          const feature = {
+            type: "Feature" as const,
+            properties: { surf: 0, class: 1, name: "" },
+            geometry: { type: "MultiLineString" as const, coordinates: coords },
+          };
+          if (!ctx.sealedLines) {
+            ctx.sealedLines = L.geoJSON(
+              (coords.length ? feature : { type: "FeatureCollection", features: [] }) as import("geojson").Feature,
+              sealedOpts,
+            );
+            if (!ctx.roadLines || ctx.map.hasLayer(ctx.roadLines)) ctx.sealedLines.addTo(map);
+          } else {
+            const line = ctx.sealedLines.getLayers()[0] as { setLatLngs?: (ll: [number, number][][]) => void; feature?: { geometry?: unknown } } | undefined;
+            if (!coords.length) ctx.sealedLines.clearLayers();
+            else if (line?.setLatLngs) {
+              line.setLatLngs(coords.map((part) => part.map(([lng, lat]) => [lat, lng])));
+              if (line.feature) line.feature.geometry = feature.geometry;
+            } else ctx.sealedLines.addData(feature);
+          }
+          cover = query;
+          coverZoom = z;
         };
-        map.on("moveend zoomend", () => {
-          void syncChunks();
-        });
-        void syncChunks();
+        const scheduleSealed = () => {
+          if (queued) return;
+          queued = true;
+          window.requestAnimationFrame(() => {
+            queued = false;
+            syncSealed();
+          });
+        };
+        map.on("move zoom rotate resize", scheduleSealed);
+        syncSealed();
+      } else {
+        attachOsmSealed();
       }
+      map.on("moveend zoomend", () => {
+        void syncChunks();
+      });
+      void syncChunks();
     } catch {
       /* optional */
     }
@@ -650,15 +718,19 @@ export async function bootMap(args: BootArgs): Promise<() => void> {
             const ll = "latlng" in ev ? (ev as { latlng: { lat: number; lng: number } }).latlng : map.getCenter();
             let title = String(props.Road_name || props.name || "").trim();
             if (!title) {
-              let bestD = Infinity;
-              for (const sn of drive.snaps) {
-                const d = Math.hypot((sn.lat - ll.lat) * 111.32, (sn.lng - ll.lng) * 89.2);
-                if (d < bestD && sn.name) {
-                  bestD = d;
-                  title = sn.name;
+              const near = drive.roads.closest(ll.lat, ll.lng, 120);
+              if (near) title = near.name;
+              else {
+                let bestD = Infinity;
+                for (const sn of drive.snaps) {
+                  const d = Math.hypot((sn.lat - ll.lat) * 111.32, (sn.lng - ll.lng) * 89.2);
+                  if (d < bestD && sn.name) {
+                    bestD = d;
+                    title = sn.name;
+                  }
                 }
+                if (bestD > 0.12) title = "";
               }
-              if (bestD > 0.12) title = "";
             }
             const from = String(props.From || "").trim();
             const to = String(props.To || "").trim();

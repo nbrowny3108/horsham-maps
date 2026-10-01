@@ -1,12 +1,12 @@
 import { cachedJson } from "./app-cache";
-import type { RoadIndex } from "./snap";
+import { RoadIndex } from "./snap";
 
 export const ROAD_CHUNK_ZOOM = 13;
 const CELL = 0.1;
 
-type RoadFeat = {
+export type RoadFeat = {
   properties?: { name?: string; highway?: string; class?: number; surf?: number };
-  geometry?: { coordinates?: [number, number][] };
+  geometry?: { type?: string; coordinates?: [number, number][] | [number, number][][] };
 };
 
 export function hasSealedOverlay(sealed: { features?: unknown[] } | null | undefined): boolean {
@@ -28,6 +28,133 @@ export function overlayRoadFeatures<T extends { properties?: { surf?: number } }
 export function minorRoadsToDraw<T extends { properties?: { surf?: number } }>(features: T[], sealedActive: boolean): T[] {
   if (!sealedActive) return features;
   return features.filter((f) => Number(f.properties?.surf ?? 0) !== 0);
+}
+
+const SEALED_CELL = 0.1;
+
+export type SealedIndex = {
+  lines: [number, number][][];
+  bbox: Float64Array;
+  grid: Map<string, number[]>;
+};
+
+function lineCoords(coords: [number, number][] | undefined): [number, number][] | null {
+  if (!coords || coords.length < 2) return null;
+  return coords;
+}
+
+/** Grid index so the map can stroke only the sealed lines inside the current view. */
+export function buildSealedIndex(data: { features?: RoadFeat[] } | null | undefined): SealedIndex {
+  const lines: [number, number][][] = [];
+  const boxes: number[] = [];
+  const grid = new Map<string, number[]>();
+  const add = (coords: [number, number][]) => {
+    const line = lineCoords(coords);
+    if (!line) return;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const p of line) {
+      const x = Number(p[0]);
+      const y = Number(p[1]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+    if (!Number.isFinite(minX)) return;
+    const id = lines.length;
+    lines.push(line);
+    boxes.push(minX, minY, maxX, maxY);
+    const x0 = Math.floor(minX / SEALED_CELL);
+    const x1 = Math.floor(maxX / SEALED_CELL);
+    const y0 = Math.floor(minY / SEALED_CELL);
+    const y1 = Math.floor(maxY / SEALED_CELL);
+    for (let x = x0; x <= x1; x++) {
+      for (let y = y0; y <= y1; y++) {
+        const key = `${x}_${y}`;
+        const bucket = grid.get(key);
+        if (bucket) bucket.push(id);
+        else grid.set(key, [id]);
+      }
+    }
+  };
+  for (const feat of data?.features ?? []) {
+    const geom = feat.geometry;
+    if (!geom?.coordinates) continue;
+    if (geom.type === "MultiLineString") {
+      for (const part of geom.coordinates as [number, number][][]) add(part);
+    } else {
+      add(geom.coordinates as [number, number][]);
+    }
+  }
+  return { lines, bbox: Float64Array.from(boxes), grid };
+}
+
+/** Every sealed line whose box meets the view. Missing a crossing line would open a gap. */
+export function sealedLinesTouching(
+  index: SealedIndex,
+  west: number,
+  south: number,
+  east: number,
+  north: number,
+): [number, number][][] {
+  const x0 = Math.floor(west / SEALED_CELL);
+  const x1 = Math.floor(east / SEALED_CELL);
+  const y0 = Math.floor(south / SEALED_CELL);
+  const y1 = Math.floor(north / SEALED_CELL);
+  const seen = new Set<number>();
+  const out: [number, number][][] = [];
+  for (let x = x0; x <= x1; x++) {
+    for (let y = y0; y <= y1; y++) {
+      const bucket = index.grid.get(`${x}_${y}`);
+      if (!bucket) continue;
+      for (const id of bucket) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const o = id * 4;
+        const minX = index.bbox[o] ?? Infinity;
+        const minY = index.bbox[o + 1] ?? Infinity;
+        const maxX = index.bbox[o + 2] ?? -Infinity;
+        const maxY = index.bbox[o + 3] ?? -Infinity;
+        if (minX > east || maxX < west || minY > north || maxY < south) continue;
+        const line = index.lines[id];
+        if (line) out.push(line);
+      }
+    }
+  }
+  return out;
+}
+
+export function roadFeatureName(feat: RoadFeat): string {
+  const raw = (feat.properties?.name || "").trim();
+  if (raw) return raw;
+  const highway = feat.properties?.highway;
+  if (highway === "track") return "Track";
+  if (highway === "service") return "Service road";
+  if (highway === "unclassified") return "Unnamed road";
+  return "";
+}
+
+export function indexRoadLines(features: RoadFeat[], roads: RoadIndex): void {
+  const lines: { name: string; coords: [number, number][] }[] = [];
+  for (const feat of features) {
+    const geom = feat.geometry;
+    if (!geom?.coordinates) continue;
+    const name = roadFeatureName(feat);
+    if (!name) continue;
+    if (geom.type === "MultiLineString") {
+      for (const part of geom.coordinates as [number, number][][]) {
+        if (part.length >= 2) lines.push({ name, coords: part });
+      }
+    } else {
+      const coords = geom.coordinates as [number, number][];
+      if (coords.length >= 2) lines.push({ name, coords });
+    }
+  }
+  roads.loadSegments(lines);
 }
 
 const inflight = new Map<string, Promise<{ type: string; features: RoadFeat[] } | null>>();
@@ -87,18 +214,11 @@ export function appendRoadSnaps(
     return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
   };
   for (const f of features) {
-    const coords = f.geometry?.coordinates;
-    if (!coords || coords.length < 2) continue;
-    const raw = (f.properties?.name || "").trim();
-    const name =
-      raw ||
-      (f.properties?.highway === "track"
-        ? "Track"
-        : f.properties?.highway === "service"
-          ? "Service road"
-          : f.properties?.highway === "unclassified"
-            ? "Unnamed road"
-            : "");
+    const raw = f.geometry?.coordinates;
+    if (!raw || f.geometry?.type === "MultiLineString" || raw.length < 2) continue;
+    const coords = raw as [number, number][];
+    if (typeof coords[0]?.[0] !== "number") continue;
+    const name = roadFeatureName(f);
     if (!name) continue;
     roads?.addLine(name, coords);
     let acc = 0;

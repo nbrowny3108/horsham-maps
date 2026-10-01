@@ -340,3 +340,43 @@ test("sealed roads: Vicmap seal covers Horsham gaps OSM left brown or unloaded",
   }
   assert.ok(best < 0.04, `Remlaw sealed gap still ${best} km from Vicmap`);
 });
+
+test("sealed index: full shire keeps every line, a street view does not build them all", () => {
+  const data = JSON.parse(readFileSync(new URL("../public/data/sealed-roads.geojson", import.meta.url), "utf8"));
+  const index = roads.buildSealedIndex(data);
+  assert.equal(index.lines.length, data.features.length);
+  const all = roads.sealedLinesTouching(index, 141.5, -37.4, 142.8, -36.2);
+  assert.equal(all.length, data.features.length);
+  const street = roads.sealedLinesTouching(index, 142.195, -36.722, 142.205, -36.712);
+  assert.ok(street.length > 0, "street box missed sealed roads");
+  assert.ok(street.length < data.features.length / 5, `street box still has ${street.length} lines`);
+  const gap = [142.164, -36.71345];
+  const near = roads.sealedLinesTouching(index, gap[0] - 0.01, gap[1] - 0.01, gap[0] + 0.01, gap[1] + 0.01);
+  const km = (a, b) => (((b[1] - a[1]) * 111.32) ** 2 + ((b[0] - a[0]) * 89.2) ** 2) ** 0.5;
+  let best = Infinity;
+  for (const line of near) {
+    for (let i = 1; i < line.length; i++) {
+      const a = line[i - 1];
+      const b = line[i];
+      const dx = b[0] - a[0];
+      const dy = b[1] - a[1];
+      const len2 = dx * dx + dy * dy || 1;
+      let t = ((gap[0] - a[0]) * dx + (gap[1] - a[1]) * dy) / len2;
+      t = Math.max(0, Math.min(1, t));
+      best = Math.min(best, km(gap, [a[0] + dx * t, a[1] + dy * t]));
+    }
+  }
+  assert.ok(best < 0.04, `viewport query dropped Remlaw, ${best} km`);
+});
+
+test("road index: bulk sealed load answers bearing without a point scan", () => {
+  const index = new snap.RoadIndex();
+  index.loadSegments([{ name: "Remlaw Road", coords: [[142.16, -36.72], [142.16, -36.7]] }]);
+  const brg = index.bearingNear(-36.71, 142.16015, 250, "Remlaw Road");
+  assert.ok(brg != null);
+  assert.ok(brg < 8 || brg > 352, `bearing ${brg}`);
+  assert.equal(index.closest(-36.71, 142.16015, 120)?.name, "Remlaw Road");
+  assert.equal(index.bearingNear(-36.71, 142.25, 40, "Remlaw Road"), null);
+  const hit = index.nearest(-36.71, 142.16015, 0, 40);
+  assert.equal(hit?.name, "Remlaw Road");
+});
