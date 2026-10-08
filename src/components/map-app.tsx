@@ -21,6 +21,7 @@ import {
   type SpeedZoomSettings,
 } from "@/lib/maps/style";
 import { startBackgroundCache } from "@/lib/maps/app-cache";
+import { applyViewportHeight, measureViewportHeight } from "@/lib/maps/viewport";
 import { listMapLibrary, saveMapLibrary, type LibraryFile } from "@/lib/maps/map-library";
 import { prefetchDrive } from "@/lib/maps/tile-cache";
 import { placeSubtitle, placeTitle, RateLimitError, reverseGeocode, searchPlaces } from "@/lib/maps/places";
@@ -428,13 +429,15 @@ export function MapApp() {
     let t = 0;
     const fill = () => {
       const vv = window.visualViewport;
-      const h = Math.max(window.innerHeight || 0, document.documentElement.clientHeight || 0, vv ? Math.round(vv.height + vv.offsetTop) : 0);
-      document.documentElement.style.setProperty("--app-h", `${h}px`);
-      const app = document.getElementById("app");
-      if (app) {
-        app.style.height = `${h}px`;
-        app.style.minHeight = `${h}px`;
-      }
+      applyViewportHeight(
+        document,
+        measureViewportHeight({
+          innerHeight: window.innerHeight,
+          clientHeight: document.documentElement.clientHeight,
+          visualHeight: vv?.height,
+          visualOffsetTop: vv?.offsetTop,
+        }),
+      );
       pinToolbar();
       const map = handle.current?.map;
       if (map) {
@@ -451,10 +454,12 @@ export function MapApp() {
     };
     fill();
     window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
     window.visualViewport?.addEventListener("resize", onResize);
     return () => {
       window.clearTimeout(t);
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
       window.visualViewport?.removeEventListener("resize", onResize);
     };
   }, []);

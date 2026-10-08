@@ -1,6 +1,8 @@
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
+import { AppErrorComponent } from "@/lib/error-component";
+import { BOOT_GUARD_SOURCE } from "@/lib/maps/boot-guard";
 import appCss from "../styles.css?url";
 
 const APP_NAME = "Horsham Maps";
@@ -8,6 +10,7 @@ const host = import.meta.env.VITE_PUBLIC_HOSTNAME;
 const ogImage = host ? `https://${host}/og.jpg` : undefined;
 
 export const Route = createRootRoute({
+  errorComponent: AppErrorComponent,
   head: () => ({
     meta: [
       { charSet: "utf-8" },
@@ -44,11 +47,27 @@ export const Route = createRootRoute({
     ],
   }),
   component: () => (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning style={{ height: "100%", background: "#d0d3d6" }}>
       <head>
+        <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: BOOT_GUARD_SOURCE }} />
         <HeadContent />
       </head>
-      <body>
+      <body style={{ margin: 0, background: "#d0d3d6", height: "100%", minHeight: "100%" }}>
+        <noscript>
+          <main
+            style={{
+              boxSizing: "border-box",
+              minHeight: "100dvh",
+              padding: "2.5rem 1.25rem",
+              background: "#fff",
+              color: "#202124",
+              fontFamily: "system-ui, sans-serif",
+            }}
+          >
+            <h1 style={{ fontSize: "1.35rem" }}>Horsham Maps needs JavaScript</h1>
+            <p>Turn JavaScript on for this site, then open it again.</p>
+          </main>
+        </noscript>
         <PreviewHostBridge />
         <AuthProvider>
           <Outlet />

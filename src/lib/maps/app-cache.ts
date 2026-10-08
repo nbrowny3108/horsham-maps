@@ -4,7 +4,7 @@ type Json = Record<string, unknown>;
 
 export function registerAppCache(): void {
   if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
-  void navigator.serviceWorker.register("/sw.js").catch(() => {});
+  void navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch(() => {});
 }
 
 export async function cachedJson(url: string): Promise<Json> {

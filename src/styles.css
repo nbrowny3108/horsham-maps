@@ -25,16 +25,18 @@
 }
 
 @layer base {
+  /* Keep height:100% as the size that paints. Do not override it with a
+     viewport unit: if that unit computes to 0, overflow:hidden clips the UI
+     to a blank viewport. dvh is only a min-height expansion. */
   html {
     height: 100%;
-    height: 100lvh;
-    min-height: 100lvh;
+    min-height: 100%;
     min-height: -webkit-fill-available;
+    min-height: 100dvh;
   }
 
   html,
-  body,
-  #app {
+  body {
     max-width: 100%;
     overflow: hidden;
     overscroll-behavior: none;
@@ -42,21 +44,17 @@
     background: #d0d3d6;
   }
 
-  body,
-  #app {
+  body {
     height: 100%;
     min-height: 100%;
-    min-height: 100lvh;
     min-height: -webkit-fill-available;
+    min-height: 100dvh;
     margin: 0;
     position: relative;
   }
 
-  #app {
-    position: absolute;
-    inset: 0;
-    height: var(--app-h, 100lvh);
-    min-height: var(--app-h, 100lvh);
+  [data-app-shell] {
+    min-height: 100%;
   }
 
   body {

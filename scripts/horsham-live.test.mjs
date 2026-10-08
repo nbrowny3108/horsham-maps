@@ -25,11 +25,13 @@ test("manifest name is Horsham Maps", async () => {
   assert.equal(json.short_name, "Horsham Maps");
 });
 
-test("service worker is v17 and does not reload from page cache name", async () => {
+test("service worker is v26 and does not reload from page cache name", async () => {
   const res = await get("/sw.js");
   const js = await res.text();
-  assert.match(js, /horsham-app-v25/);
+  assert.match(js, /horsham-app-v26/);
   assert.match(js, /skipWaiting/);
+  assert.match(js, /fallbackHtmlResponse/);
+  assert.match(js, /copyResponse/);
 });
 
 test("app-cache does not location.reload", () => {
