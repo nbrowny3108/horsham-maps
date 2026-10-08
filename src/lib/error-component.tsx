@@ -1,16 +1,45 @@
+import type { CSSProperties } from "react";
 import type { ErrorComponentProps } from "@tanstack/react-router";
-import { TriangleAlert } from "lucide-react";
+import { recoverOrReload } from "@/lib/maps/boot-guard";
+
+const frame: CSSProperties = {
+  minHeight: "100dvh",
+  boxSizing: "border-box",
+  background: "#fff",
+  color: "#202124",
+  fontFamily: "system-ui, sans-serif",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 12,
+  padding: 24,
+  textAlign: "center",
+};
 
 export function AppErrorComponent({ error }: ErrorComponentProps) {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-3 bg-bg px-6 text-center text-fg">
-      <span className="text-danger" aria-hidden="true">
-        <TriangleAlert className="size-10" strokeWidth={2} />
-      </span>
-      <h1 className="text-lg font-semibold">Something went wrong</h1>
-      <p className="max-w-md text-sm break-words text-muted">
-        {error.message || "An unexpected error occurred. Try reloading the page."}
+    <main data-boot-error="" style={frame}>
+      <h1 style={{ fontSize: 22, margin: 0 }}>Horsham Maps hit a problem</h1>
+      <p style={{ maxWidth: 420, margin: 0, fontSize: 15, overflowWrap: "anywhere" }}>
+        {error?.message || "Something went wrong while opening the map."}
       </p>
+      <button
+        type="button"
+        onClick={() => recoverOrReload()}
+        style={{
+          height: 48,
+          padding: "0 16px",
+          border: 0,
+          borderRadius: 8,
+          background: "#1a73e8",
+          color: "#fff",
+          fontWeight: 700,
+          fontSize: 16,
+        }}
+      >
+        Reload a fresh copy
+      </button>
     </main>
   );
 }

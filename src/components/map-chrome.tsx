@@ -198,7 +198,7 @@ mapEl,
   } = p;
 
   return (
-    <div className="relative h-full overflow-hidden bg-bg text-fg">
+    <div data-app-shell="" className="relative h-full overflow-hidden bg-bg text-fg">
       <div
         className="absolute inset-x-0 top-0 overflow-hidden bottom-[100px]"
       >
